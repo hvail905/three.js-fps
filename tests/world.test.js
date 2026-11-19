@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { makeWorld, addPlayer, addActor, stepWorld, makeInput, eyePosition } from '../src/sim/world.js';
+import { makeWorld, addPlayer, addActor, stepWorld, makeInput, eyePosition, enableAI, PLAYER_RULES } from '../src/sim/world.js';
 import { PRESETS, damageAt } from '../src/sim/gun.js';
 
 // flat floor, optionally a wall: plain geometry, no renderer
@@ -12,10 +12,11 @@ function collider(extra = []) {
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   return { bvh: new MeshBVH(geo), triSurface: new Uint8Array(pos.length / 9) };
 }
-function setup({ loadout = ['rifle'], walls = [], targets = [[0, 0, -15]] } = {}) {
+function setup({ loadout = ['rifle'], walls = [], targets = [[0, 0, -15]], ai = false, yaw = Math.PI } = {}) {
   const world = makeWorld({ collider: collider(walls), weapons: PRESETS, loadout });
   const me = addPlayer(world, { pos: [0, 0.05, 0] });
-  for (const t of targets) addActor(world, { pos: t });
+  for (const t of targets) addActor(world, { pos: t, yaw }); // yaw PI: the actor faces -Z... toward +Z is 0
+  if (ai) enableAI(world, { bounds: { x0: -40, z0: -40, width: 80, depth: 80 }, seed: 3 });
   for (let i = 0; i < 10; i++) stepWorld(world, { [me.id]: makeInput() }); // settle on the floor
   return { world, me };
 }
@@ -75,5 +76,66 @@ test('sniper bullets are projectiles: they take time to arrive and drop', () => 
 
 test('same inputs give the same result (deterministic, so a co-op host can be authoritative)', () => {
   const run = () => { const { world, me } = setup({ targets: [[0, 0, -12], [2, 0, -20]] }); hold(world, me, 200, { trigger: true, moveX: 1, ...aim(me, [0, 0, -12], 1.2) }); return JSON.stringify([world.actors.map(a => a.hp), world.stats, me.body.pos]); };
+  assert.equal(run(), run());
+});
+
+// ---------------------------------------------------------------- enemy AI
+// Actor yaw 0 faces +Z (character convention). A target at z = -15 facing the player at the origin uses yaw 0.
+test('an enemy with line of sight spots, shoots and hurts the player', () => {
+  const { world, me } = setup({ ai: true, yaw: 0, targets: [[0, 0, -15]] });
+  const ev = hold(world, me, 60 * 12, {});
+  assert.ok(ev.some(e => e.type === 'enemyShot'), 'enemy fired');
+  assert.ok(world.stats.damageTaken > 0 || !me.alive, 'player took damage');
+});
+
+test('a wall hides a quiet player; gunfire brings the enemy to investigate', () => {
+  const wall = new THREE.BoxGeometry(12, 4, 0.4).translate(0, 2, -7);
+  const { world, me } = setup({ ai: true, yaw: 0, walls: [wall], targets: [[0, 0, -15]] });
+  let ev = hold(world, me, 60 * 6, {});
+  assert.equal(ev.filter(e => e.type === 'enemyShot').length, 0, 'no shots through the wall');
+  assert.equal(world.stats.damageTaken, 0);
+  const agent = world.actors[0].agent, start = [agent.x, agent.z];
+  hold(world, me, 1, { trigger: true, pitch: 0.6 }); // fire into the air: noise only
+  hold(world, me, 60 * 3, {});
+  assert.notEqual(agent.state, 'patrol', `state after gunfire: ${agent.state}`);
+  assert.ok(Math.hypot(agent.x - start[0], agent.z - start[1]) > 1, 'enemy moved toward the noise');
+});
+
+test('the nav grid blocks cells inside walls', () => {
+  const wall = new THREE.BoxGeometry(12, 4, 0.4).translate(0, 2, -7);
+  const { world } = setup({ ai: true, walls: [wall], targets: [[0, 0, -15]] });
+  const W = world.ai.W, cell = (x, z) => W.blocked[Math.floor((z - W.z0) / W.cell) * W.cols + Math.floor((x - W.x0) / W.cell)];
+  assert.equal(cell(0, -7), 1); assert.equal(cell(0, -3), 0); assert.equal(cell(8, -7), 0);
+});
+
+test('the player can die, which ends the round as lost and stops their input', () => {
+  const { world, me } = setup({ ai: true, yaw: 0, targets: [[0, 0, -8], [2, 0, -8], [-2, 0, -8]] });
+  me.hp = 5; me.lastHurt = world.time; // already hurt, so no regeneration yet
+  const ev = hold(world, me, 60 * 20, {});
+  assert.ok(ev.some(e => e.type === 'playerDied'));
+  assert.ok(world.lost && !me.alive && me.hp === 0);
+  const shots = hold(world, me, 30, { trigger: true }).filter(e => e.type === 'shot').length;
+  assert.equal(shots, 0, 'dead players do not shoot');
+});
+
+test('health regenerates after the delay without damage', () => {
+  const { world, me } = setup({ targets: [] });
+  me.hp = 40; me.lastHurt = world.time;
+  hold(world, me, Math.round(60 * (PLAYER_RULES.regenDelay - 0.5)), {});
+  assert.equal(me.hp, 40, 'no regen before the delay');
+  hold(world, me, 60 * 2, {});
+  assert.ok(me.hp > 40 && me.hp <= me.maxHp);
+});
+
+test('a hit sends an enemy into cover behavior', () => {
+  const { world, me } = setup({ ai: true, yaw: Math.PI, targets: [[0, 0, -12]] }); // facing away, unaware
+  hold(world, me, 30, { ads: true, ...aim(me, [0, 0, -12], 1.25) });
+  hold(world, me, 40, { trigger: true, ads: true, ...aim(me, [0, 0, -12], 1.25) });
+  const a = world.actors[0];
+  if (a.alive) assert.ok(['cover', 'attack', 'chase'].includes(a.agent.state), a.agent.state);
+});
+
+test('with AI, the same inputs still give the same result', () => {
+  const run = () => { const { world, me } = setup({ ai: true, yaw: 0, targets: [[0, 0, -14], [5, 0, -18]] }); hold(world, me, 60 * 8, { moveX: 0.5 }); return JSON.stringify([world.actors.map(a => [a.hp, a.pos.x.toFixed(4), a.pos.z.toFixed(4), a.agent.state]), me.hp, world.stats]); };
   assert.equal(run(), run());
 });

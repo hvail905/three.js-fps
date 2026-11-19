@@ -43,3 +43,10 @@ test('level files reference only things that exist and have the markers a round 
     assert.ok(L.objects.some(r => r.kind === 'enemySpawn'), `${f} needs enemy spawns`);
   }
 });
+
+test('AI profile matches the AI sim defaults', async () => {
+  const { DEFAULT_AI } = await import('../src/sim/ai.js');
+  const j = json('../data/ai/default.json');
+  assert.equal(j.kind, 'aiProfile');
+  assert.deepEqual(j.params, DEFAULT_AI);
+});

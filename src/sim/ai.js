@@ -15,12 +15,17 @@ export function rng(seed) { let a = seed >>> 0 || 1; return () => { a = (a + 0x6
 
 // ---------- world ----------
 // obstacles: { x, z, w, d, h }  (center x/z, size w (x) d (z), height h)
-export function makeWorld({ width = 60, depth = 40, cell = 0.5, obstacles = [], spawns = [], patrol = [], playerSpawn = [0, 0], seed = 1 } = {}) {
-  const W = { width, depth, cell, obstacles, cols: Math.ceil(width / cell), rows: Math.ceil(depth / cell), x0: -width / 2, z0: -depth / 2, rand: rng(seed), t: 0, noises: [], shots: [], events: [] };
+// Optional hooks let a real level drive the AI (the game passes these; the AI lab uses box obstacles):
+//   blockedFn(x, z, R) -> true where an agent of radius R cannot stand
+//   losFn(ax, az, ah, bx, bz, bh) -> true when nothing blocks the line between the two points
+//   x0, z0: world-space corner of the grid (defaults to centering it on the origin)
+export function makeWorld({ width = 60, depth = 40, cell = 0.5, obstacles = [], spawns = [], patrol = [], playerSpawn = [0, 0], seed = 1, blockedFn = null, losFn = null, x0 = -width / 2, z0 = -depth / 2 } = {}) {
+  const W = { width, depth, cell, obstacles, cols: Math.ceil(width / cell), rows: Math.ceil(depth / cell), x0, z0, rand: rng(seed), t: 0, noises: [], shots: [], events: [], losFn };
   W.blocked = new Uint8Array(W.cols * W.rows);
   const R = 0.4;
   for (let r = 0; r < W.rows; r++) for (let c = 0; c < W.cols; c++) {
     const x = W.x0 + (c + 0.5) * cell, z = W.z0 + (r + 0.5) * cell;
+    if (blockedFn) { if (blockedFn(x, z, R)) W.blocked[r * W.cols + c] = 1; continue; }
     for (const o of obstacles) if (Math.abs(x - o.x) < o.w / 2 + R && Math.abs(z - o.z) < o.d / 2 + R) { W.blocked[r * W.cols + c] = 1; break; }
   }
   // cover candidates: free cells next to an obstacle tall enough to hide a crouching body
@@ -33,6 +38,7 @@ export function makeWorld({ width = 60, depth = 40, cell = 0.5, obstacles = [], 
   }
   W.player = { x: playerSpawn[0], z: playerSpawn[1], vx: 0, vz: 0, crouch: false, hp: 100, alive: true, moving: false, running: false };
   W.agents = spawns.map((s, i) => makeAgent(i, s, patrol, W));
+  spawns.forEach((s, i) => { if (s.length > 2) W.agents[i].yaw = s[2]; });
   return W;
 }
 function makeAgent(id, [x, z], patrol, W) {
@@ -46,7 +52,7 @@ function makeAgent(id, [x, z], patrol, W) {
     fireT: 0, burstLeft: 0, searchPts: [], thinkT: 0, label: '',
   };
 }
-const clampToWorld = (W, [x, z]) => [Math.max(W.x0 + 1, Math.min(-W.x0 - 1, x)), Math.max(W.z0 + 1, Math.min(-W.z0 - 1, z))];
+const clampToWorld = (W, [x, z]) => [Math.max(W.x0 + 1, Math.min(W.x0 + W.width - 1, x)), Math.max(W.z0 + 1, Math.min(W.z0 + W.depth - 1, z))];
 
 // ---------- grid helpers ----------
 const cellOf = (W, x, z) => [Math.floor((x - W.x0) / W.cell), Math.floor((z - W.z0) / W.cell)];
@@ -104,6 +110,7 @@ export function findPath(W, ax, az, bx, bz) {
 // ---------- line of sight with heights ----------
 // eye heights: standing 1.6, crouched 1.0. Low obstacles only block lines that pass below their top.
 export function lineOfSight(W, ax, az, ah, bx, bz, bh) {
+  if (W.losFn) return W.losFn(ax, az, ah, bx, bz, bh);
   const dx = bx - ax, dz = bz - az;
   for (const o of W.obstacles) {
     let t0 = 0, t1 = 1;
@@ -285,7 +292,7 @@ function think(W, a, P, dt) {
         a.crouch = !a.peek;
         if (a.peek) tryShoot(W, a, P, dt);
         if (a.lastKnown) turnTo(a, Math.atan2(a.lastKnown[0] - a.x, a.lastKnown[1] - a.z), dt * 4);
-      } else { a.crouch = false; tryShoot(W, a, P, dt); }
+      } else { a.crouch = false; if (a.seeing && a.lastKnown) turnTo(a, Math.atan2(a.lastKnown[0] - a.x, a.lastKnown[1] - a.z), dt * 8); tryShoot(W, a, P, dt); }
       if (W.t - a.lastSeenT > 6) setState(a, 'search');
       a.label = arrived ? (a.peek ? 'cover: peek' : 'cover: hide') : 'to cover';
       break;
@@ -294,6 +301,8 @@ function think(W, a, P, dt) {
       a.crouch = false; tryShoot(W, a, P, dt);
       if (!a.path.length) { const ang = W.rand() * Math.PI * 2; const [x, z] = clampToWorld(W, [a.x + Math.cos(ang) * 3, a.z + Math.sin(ang) * 3]); goTo(W, a, x, z); }
       moveAlong(W, a, P.walkSpeed, dt);
+      // strafe while facing the threat (moving would otherwise turn the agent toward its path)
+      if (a.lastKnown) turnTo(a, Math.atan2(a.lastKnown[0] - a.x, a.lastKnown[1] - a.z), dt * 12);
       if (a.stateT > 3) setState(a, 'cover');
       if (W.t - a.lastSeenT > 5) setState(a, 'search');
       a.label = 'attack';
@@ -314,9 +323,18 @@ function think(W, a, P, dt) {
   }
 }
 
-export function stepWorld(W, playerCmd, P, dt = AI_TICK) {
-  W.t += dt;
-  stepPlayer(W, playerCmd, dt);
+// An agent was shot from (x, z): it knows where the shooter is and heads for cover.
+export function onAgentHit(W, a, x, z) {
+  if (!a.alive) return;
+  a.awareness = 1; a.lastKnown = [x, z]; a.lastSeenT = W.t;
+  if (a.state !== 'cover') setState(a, 'cover');
+}
+export function killAgent(W, a) { a.alive = false; a.state = 'dead'; }
+// A gunshot or footsteps the agents can hear.
+export function addNoise(W, x, z, r, kind) { W.noises.push({ x, z, r, t: W.t, kind }); }
+
+// Brains only: perception, decisions, movement and shooting at W.player. The game calls this directly.
+export function stepAgents(W, P, dt = AI_TICK) {
   for (const a of W.agents) {
     if (!a.alive) continue;
     perceive(W, a, P, dt);
@@ -325,4 +343,11 @@ export function stepWorld(W, playerCmd, P, dt = AI_TICK) {
   W.noises = W.noises.filter(n => W.t - n.t < 1.0);
   W.shots = W.shots.filter(s => W.t - s.t < 0.15);
   if (W.events.length > 50) W.events.splice(0, W.events.length - 50);
+}
+
+// The AI lab: its simple top-down player plus the brains.
+export function stepWorld(W, playerCmd, P, dt = AI_TICK) {
+  W.t += dt;
+  stepPlayer(W, playerCmd, dt);
+  stepAgents(W, P, dt);
 }
