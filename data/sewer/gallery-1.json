@@ -10,7 +10,8 @@
   "R": "room",
   "P": "pump hall",
   "v": "crawl vent",
-  "X": "exit gate"
+  "X": "exit gate",
+  "g": "barred side tunnel (seen, not entered)"
  },
  "heights": {
   ".": {
@@ -36,31 +37,35 @@
   "X": {
    "floor": 0,
    "ceil": 3.2
+  },
+  "g": {
+   "floor": 0,
+   "ceil": 2.6
   }
  },
  "map": [
   "####################################",
   "#RRRR###########...#################",
   "#RRRR............~.#################",
-  "#RRRR###.#######.~.#################",
-  "#RRRR###.#######.~.#################",
+  "#RRRR###.###g###.~.#################",
+  "#RRRR###.###g###.~.#################",
   "########.#######.~.#RRRR############",
   "########.#######.~..RRRR############",
   "######RRRRR#####.~.#RRRR############",
   "######R~~~R#####.~.#################",
-  "######R~~~R#####.~.#################",
+  "######R~~~R###gg.~.#################",
   "################.~.#################",
   "################.~.vvvvvvvvvvv######",
   "################.~.##########v######",
   "################.~.##########v######",
-  "################.~.##########v######",
+  "################.~.gg########v######",
   "################.~.##########v######",
   "###########PPPPPP~PPPPPPPP###v######",
   "###########PPPPPP~PPPPPPPP###v######",
   "###########PPPPPP~PPPPPPPP###v###XX#",
-  "###########PPPPPP~PPPPPPPP.......XX#",
-  "###########PPPPPP~PPPPPPPP#######XX#",
-  "###########PPPPPP~PPPPPPPP##########",
+  "#########ggPPPPPP~PPPPPPPP.......XX#",
+  "###########PPPPPP~PPPPPPPP##g####XX#",
+  "###########PPPPPP~PPPPPPPP##g#######",
   "####################################",
   "####################################"
  ],
@@ -216,78 +221,240 @@
  ],
  "lights": [
   {
+   "kind": "tube",
    "cell": [
     2,
     2
    ],
-   "color": "#ffcf8a",
-   "intensity": 6,
-   "flicker": 0.5
+   "color": "#cfe0ff",
+   "intensity": 2.25,
+   "flicker": 0.35
   },
   {
+   "kind": "cage",
    "cell": [
-    10,
+    6,
     2
    ],
-   "color": "#d8e4ff",
-   "intensity": 5,
-   "flicker": 0.1
+   "side": "n",
+   "color": "#ffc27a",
+   "intensity": 4,
+   "flicker": 0.0
   },
   {
+   "kind": "cage",
+   "cell": [
+    11,
+    2
+   ],
+   "side": "s",
+   "color": "#ffc27a",
+   "intensity": 4,
+   "flicker": 0.15
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    15,
+    2
+   ],
+   "side": "n",
+   "color": "#ffc27a",
+   "intensity": 4,
+   "flicker": 0.0
+  },
+  {
+   "kind": "bulb",
    "cell": [
     17,
     1
    ],
    "color": "#ffcf8a",
-   "intensity": 7,
+   "intensity": 5,
    "flicker": 0.0
   },
   {
+   "kind": "cage",
    "cell": [
     16,
-    10
+    4
    ],
-   "color": "#9fd0a0",
-   "intensity": 4,
-   "flicker": 0.8
+   "side": "w",
+   "color": "#ffb36a",
+   "intensity": 3.5,
+   "flicker": 0.0
   },
   {
+   "kind": "cage",
    "cell": [
-    22,
+    18,
+    8
+   ],
+   "side": "e",
+   "color": "#ffb36a",
+   "intensity": 3.5,
+   "flicker": 0.5
+  },
+  {
+   "kind": "tube",
+   "cell": [
+    17,
+    12
+   ],
+   "color": "#b8d8c0",
+   "intensity": 1.8,
+   "flicker": 0.6
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    16,
+    14
+   ],
+   "side": "w",
+   "color": "#ffb36a",
+   "intensity": 3.5,
+   "flicker": 0.0
+  },
+  {
+   "kind": "tube",
+   "cell": [
+    21,
     6
    ],
-   "color": "#ffd9a0",
-   "intensity": 6,
+   "color": "#e0e8ff",
+   "intensity": 2.25,
+   "flicker": 0.1
+  },
+  {
+   "kind": "bulb",
+   "cell": [
+    8,
+    8
+   ],
+   "color": "#9fd0a0",
+   "intensity": 3,
+   "flicker": 0.7
+  },
+  {
+   "kind": "bulb",
+   "cell": [
+    8,
+    4
+   ],
+   "color": "#ffcf8a",
+   "intensity": 2.5,
    "flicker": 0.2
   },
   {
+   "kind": "tube",
    "cell": [
     14,
     18
    ],
-   "color": "#ff9a5a",
-   "intensity": 10,
-   "flicker": 0.3,
-   "height": 4.6
+   "color": "#d8e4ff",
+   "intensity": 5,
+   "flicker": 0.0,
+   "height": 4.9
   },
   {
+   "kind": "tube",
    "cell": [
-    22,
-    20
+    21,
+    18
    ],
    "color": "#d8e4ff",
-   "intensity": 8,
-   "flicker": 0.0,
-   "height": 4.6
+   "intensity": 5,
+   "flicker": 0.25,
+   "height": 4.9
   },
   {
+   "kind": "cage",
    "cell": [
-    33,
+    11,
+    20
+   ],
+   "side": "w",
+   "color": "#ff9a5a",
+   "intensity": 4,
+   "flicker": 0.0
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    25,
+    17
+   ],
+   "side": "e",
+   "color": "#ff9a5a",
+   "intensity": 4,
+   "flicker": 0.0
+  },
+  {
+   "kind": "red",
+   "cell": [
+    29,
+    15
+   ],
+   "side": "e",
+   "color": "#ff3020",
+   "intensity": 2.5,
+   "flicker": 0.0
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    28,
     19
    ],
-   "color": "#ff5040",
-   "intensity": 7,
+   "side": "n",
+   "color": "#ffc27a",
+   "intensity": 4,
+   "flicker": 0.3
+  },
+  {
+   "kind": "red",
+   "cell": [
+    33,
+    18
+   ],
+   "side": "n",
+   "color": "#ff3020",
+   "intensity": 5,
    "flicker": 0.0
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    11,
+    18
+   ],
+   "side": "w",
+   "color": "#ffb36a",
+   "intensity": 3,
+   "flicker": 0
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    25,
+    20
+   ],
+   "side": "e",
+   "color": "#ffb36a",
+   "intensity": 3,
+   "flicker": 0.2
+  },
+  {
+   "kind": "cage",
+   "cell": [
+    20,
+    16
+   ],
+   "side": "n",
+   "color": "#ffc27a",
+   "intensity": 3,
+   "flicker": 0
   }
  ],
  "triggers": [
@@ -388,5 +555,427 @@
   "Disappointing.",
   "Again.",
   "You were doing so well."
- ]
+ ],
+ "pace": 0.7,
+ "ambient": 0.6,
+ "props": [
+  {
+   "kind": "gurney",
+   "cell": [
+    2,
+    4
+   ],
+   "rot": 0
+  },
+  {
+   "kind": "chair",
+   "cell": [
+    3,
+    1
+   ],
+   "rot": 180
+  },
+  {
+   "kind": "iv",
+   "cell": [
+    1,
+    4
+   ]
+  },
+  {
+   "kind": "cabinet",
+   "cell": [
+    4,
+    4
+   ],
+   "side": "s"
+  },
+  {
+   "kind": "door",
+   "cell": [
+    5,
+    2
+   ],
+   "side": "w"
+  },
+  {
+   "kind": "door",
+   "cell": [
+    20,
+    6
+   ],
+   "side": "w"
+  },
+  {
+   "kind": "door",
+   "cell": [
+    33,
+    19
+   ],
+   "side": "w",
+   "gate": true
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    1,
+    1
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    10,
+    2
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    18,
+    1
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    16,
+    10
+   ],
+   "side": "w"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    23,
+    5
+   ],
+   "side": "e"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    11,
+    16
+   ],
+   "side": "w"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    25,
+    21
+   ],
+   "side": "e"
+  },
+  {
+   "kind": "camera",
+   "cell": [
+    32,
+    19
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    4,
+    1
+   ],
+   "side": "e"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    8,
+    2
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    16,
+    6
+   ],
+   "side": "w"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    21,
+    5
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    24,
+    16
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    30,
+    19
+   ],
+   "side": "s"
+  },
+  {
+   "kind": "speaker",
+   "cell": [
+    18,
+    13
+   ],
+   "side": "e"
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    2,
+    1
+   ],
+   "side": "n",
+   "text": "SUBJECT 12",
+   "y": 2.0
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    9,
+    2
+   ],
+   "side": "s",
+   "text": "GALLERY 1",
+   "y": 1.7
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    7,
+    2
+   ],
+   "side": "floor",
+   "text": ">",
+   "rot": 0
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    13,
+    2
+   ],
+   "side": "floor",
+   "text": ">",
+   "rot": 0
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    16,
+    8
+   ],
+   "side": "floor",
+   "text": ">",
+   "rot": 90
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    16,
+    13
+   ],
+   "side": "floor",
+   "text": ">",
+   "rot": 90
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    18,
+    4
+   ],
+   "side": "e",
+   "text": "STAY OUT OF THE WATER",
+   "y": 1.5,
+   "w": 2.0
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    22,
+    5
+   ],
+   "side": "n",
+   "text": "ISSUE",
+   "y": 1.9
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    12,
+    16
+   ],
+   "side": "n",
+   "text": "PUMP HALL B",
+   "y": 2.4,
+   "w": 2.0
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    22,
+    16
+   ],
+   "side": "n",
+   "text": "OBSERVATION",
+   "y": 2.7,
+   "w": 1.8
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    31,
+    19
+   ],
+   "side": "n",
+   "text": "PROCEED",
+   "y": 1.7
+  },
+  {
+   "kind": "stencil",
+   "cell": [
+    22,
+    11
+   ],
+   "side": "n",
+   "text": "13 WAS HERE",
+   "y": 0.6,
+   "color": "#8a7a66"
+  },
+  {
+   "kind": "window",
+   "cell": [
+    22,
+    16
+   ],
+   "side": "n",
+   "y": 3.6
+  },
+  {
+   "kind": "shelf",
+   "cell": [
+    20,
+    5
+   ],
+   "side": "n"
+  },
+  {
+   "kind": "shelf",
+   "cell": [
+    23,
+    6
+   ],
+   "side": "e"
+  },
+  {
+   "kind": "locker",
+   "cell": [
+    23,
+    7
+   ],
+   "side": "s"
+  },
+  {
+   "kind": "crate",
+   "cell": [
+    20,
+    7
+   ],
+   "rot": 15
+  },
+  {
+   "kind": "barrel",
+   "cell": [
+    18,
+    7
+   ]
+  },
+  {
+   "kind": "barrel",
+   "cell": [
+    16,
+    12
+   ]
+  },
+  {
+   "kind": "crate",
+   "cell": [
+    10,
+    7
+   ],
+   "rot": -20
+  },
+  {
+   "kind": "crate",
+   "cell": [
+    6,
+    7
+   ],
+   "rot": 40
+  },
+  {
+   "kind": "barrel",
+   "cell": [
+    11,
+    21
+   ]
+  },
+  {
+   "kind": "barrel",
+   "cell": [
+    12,
+    21
+   ]
+  },
+  {
+   "kind": "crate",
+   "cell": [
+    13,
+    21
+   ],
+   "rot": 10
+  },
+  {
+   "kind": "crate",
+   "cell": [
+    24,
+    20
+   ],
+   "rot": -30
+  },
+  {
+   "kind": "table",
+   "cell": [
+    23,
+    17
+   ],
+   "rot": 0
+  },
+  {
+   "kind": "barrel",
+   "cell": [
+    25,
+    18
+   ]
+  }
+ ],
+ "ambientSky": "#2c4a48",
+ "ambientGround": "#1a140e"
 }

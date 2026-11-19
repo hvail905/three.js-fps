@@ -25,6 +25,9 @@ const readLS = k => { try { return JSON.parse(localStorage.getItem(k) || 'null')
 const mv = readLS('movelab.v2');
 const P = { ...DEFAULT_PARAMS, ...movementData.sim, ...(mv && mv.sim || {}) };
 const V = { ...VIEW_DEFAULTS, ...movementData.view, ...(mv && mv.view || {}) };
+// slower, heavier pace for this level; slide thresholds scale too so a sprint can still drop into a slide
+const PACE = def.pace ?? 1;
+for (const k of ['walkSpeed', 'sprintSpeed', 'crouchSpeed', 'slideMinSpeed', 'slideMaxSpeed']) P[k] *= PACE;
 const LOOKS = {};
 for (const [path, f] of Object.entries(import.meta.glob('../../data/looks/*.json', { eager: true, import: 'default' }))) LOOKS[path.split('/').pop().replace('.json', '')] = f;
 
@@ -43,7 +46,7 @@ look.sun.castShadow = false;
 const level = buildSewer(def);
 scene.add(level.root);
 let lookKey = readLS('sewer.look') || 'sewer'; if (!LOOKS[lookKey]) lookKey = 'sewer';
-function applyLook() { const st = look.apply(LOOKS[lookKey].look); look.sun.intensity = 0; look.hemi.intensity = 0.03 + 0.05 * (1 - st.night); VM.setLight(0.35); }
+function applyLook() { const st = look.apply(LOOKS[lookKey].look); look.sun.intensity = 0; look.hemi.intensity = def.ambient ?? (0.03 + 0.05 * (1 - st.night)); if (def.ambientSky) { look.hemi.color.set(def.ambientSky); look.hemi.groundColor.set(def.ambientGround || '#000000'); } VM.setLight(0.35); }
 $('lookSel').innerHTML = Object.entries(LOOKS).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
 $('lookSel').value = lookKey;
 $('lookSel').onchange = () => { lookKey = $('lookSel').value; try { localStorage.setItem('sewer.look', JSON.stringify(lookKey)); } catch (e) {} applyLook(); };
@@ -81,6 +84,13 @@ function initAudio() {
   // ambience: water flow (filtered noise, slowly breathing), deep rumble
   const loop = (kind, f, q, g) => { const len = ctx.sampleRate * 3, b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0); let last = 0; for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; d[i] = kind === 'brown' ? (last = (last + 0.02 * w) / 1.02) * 3.5 : w; } const s = ctx.createBufferSource(); s.buffer = b; s.loop = true; const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = f; fl.Q.value = q; const gg = ctx.createGain(); gg.gain.value = g; s.connect(fl); fl.connect(gg); gg.connect(dry); gg.connect(conv); s.start(); return { gg, fl }; };
   const water = loop('white', 900, 0.5, 0.0), rumble = loop('brown', 70, 0.7, 0.18);
+  // fluorescent tubes hum at mains frequency, quietly, from where they hang
+  for (const L of level.lights) if (L.kind === 'tube') {
+    const o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain(), pan = ctx.createPanner(), wp = new THREE.Vector3();
+    o.type = 'sawtooth'; o.frequency.value = 120; lp.type = 'lowpass'; lp.frequency.value = 520; g.gain.value = 0.012;
+    pan.panningModel = 'HRTF'; pan.refDistance = 1.2; pan.rolloffFactor = 1.6; L.light.getWorldPosition(wp); pan.positionX.value = wp.x; pan.positionY.value = wp.y; pan.positionZ.value = wp.z;
+    o.connect(lp); lp.connect(g); g.connect(pan); pan.connect(dry); o.start(); L.buzz = g;
+  }
   audio = { ctx, dry, conv, water, rumble };
 }
 function sound(id, preset, pos = null, tweak = null) {
@@ -114,13 +124,19 @@ function updateListener() {
 
 // ---------------------------------------------------------------- the voice
 const voiceQueue = []; let voiceT = 0, speaking = false;
+// the intercom crackles from whichever speaker is nearest (speech synthesis itself cannot be positioned)
+function nearestSpeaker() {
+  const p = camera.getWorldPosition(new THREE.Vector3()); let best = null, bd = 1e9;
+  for (const v of level.speakers) { const d = Math.hypot(v[0] - p.x, v[1] - p.y, v[2] - p.z); if (d < bd) { bd = d; best = v; } }
+  return best;
+}
 function say(lines) { for (const l of lines) voiceQueue.push(l); }
 function voiceTick(dt) {
   voiceT -= dt;
   if (voiceT > 0) return;
-  if (!voiceQueue.length) { if (speaking) { speaking = false; $('sub').style.opacity = 0; sound('intercom', 'close'); } return; }
+  if (!voiceQueue.length) { if (speaking) { speaking = false; $('sub').style.opacity = 0; sound('intercom', 'close', nearestSpeaker()); } return; }
   const line = voiceQueue.shift();
-  if (!speaking) sound('intercom', 'open');
+  if (!speaking) sound('intercom', 'open', nearestSpeaker());
   speaking = true;
   $('sub').querySelector('span').textContent = line; $('sub').style.opacity = 1;
   voiceT = 1.2 + line.split(/\s+/).length * 0.36;
@@ -428,7 +444,25 @@ function present(dt, alpha) {
   for (const k of world.pickups) if (!k.taken) { const d = Math.hypot(k.pos[0] - body.pos.x, k.pos[2] - body.pos.z); if (d < nd) { nd = d; near = k; } }
   $('prompt').style.opacity = near && !ended ? 1 : 0; if (near) $('prompt').textContent = `E  take ${PICK_LABEL[near.kind]}`;
   // flickering bulbs
-  for (const L of level.lights) { const f = L.flicker > 0 && Math.random() < L.flicker * 0.08 ? Math.random() * 0.3 : 1; L.light.intensity = L.base * f; L.bulb.material.emissiveIntensity = 2 * f; }
+  // lights: tubes stutter in bursts, bulbs sag and brown out, cages and emergency lamps hold steady
+  for (const L of level.lights) {
+    let f = 1;
+    if (L.flicker > 0) {
+      if (L.kind === 'tube') { L.burst = (L.burst || 0) - dt; if (L.burst <= 0 && Math.random() < L.flicker * dt * 0.6) L.burst = 0.15 + Math.random() * 0.5; if (L.burst > 0) f = Math.random() < 0.5 ? 0.05 : 1; }
+      else { L.sag = lerp(L.sag ?? 1, Math.random() < L.flicker * 0.05 ? 0.25 + Math.random() * 0.4 : 1, 0.15); f = L.sag; }
+    }
+    if (L.kind === 'red') f *= 0.75 + 0.25 * Math.sin(world.time * 3 + L.phase);
+    L.light.intensity = L.base * f; if (L.bulb) L.bulb.material.emissiveIntensity = (L.kind === 'tube' ? 0.8 : 2.2) * f; if (L.buzz) L.buzz.gain.value = 0.012 * f;
+  }
+  // cameras: turn to follow the player inside their arc, otherwise sweep slowly; the LED blinks
+  { const pp = camera.getWorldPosition(new THREE.Vector3());
+    for (const cam of level.cameras) {
+      const lp = cam.group.worldToLocal(pp.clone()).sub(cam.head.position), dist = lp.length();
+      let yaw = Math.sin(world.time * 0.3 + cam.phase) * 0.9, pitch = 0.35;
+      if (dist < 16 && lp.z > 0.2) { yaw = Math.max(-1.3, Math.min(1.3, Math.atan2(lp.x, lp.z))); pitch = Math.atan2(-lp.y, Math.hypot(lp.x, lp.z)); }
+      cam.head.rotation.order = 'YXZ'; cam.head.rotation.y = lerp(cam.head.rotation.y, yaw, Math.min(1, dt * 2.5)); cam.head.rotation.x = lerp(cam.head.rotation.x, pitch, Math.min(1, dt * 2.5));
+      cam.led.material.emissiveIntensity = (world.time + cam.phase) % 1.4 < 0.18 ? 4 : 0.3;
+    } }
   muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 600);
   if (level.water) level.water.material.normalMap.offset.set(0, (world.time * 0.08) % 1);
   ps.update(dt); gore.update(dt);
