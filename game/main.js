@@ -56,7 +56,9 @@ const WLIB = createWeaponLibrary(THREE), CLIB = createCharacterLibrary(THREE);
 const LK = createLevelKit(THREE, KITS);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0x34373b, roughness: 0.9 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const tLoad = performance.now();
 const level = LK.buildLevel(layout);
+const loadMs = performance.now() - tLoad;
 scene.add(level.root);
 // static level geometry merged by material: one draw call per material instead of one per piece
 const mergeInfo = mergeStatic(level.root);
@@ -66,7 +68,7 @@ look.addOverlay(VM.scene, VM.camera);
 const ps = new ParticleSystem(scene);
 const feel = createCameraFeel();
 
-let lookKey = readLS('game.look') || 'dusk-base';
+let lookKey = readLS('game.look.v2') || 'day';
 if (!LOOKS[lookKey]) lookKey = Object.keys(LOOKS)[0];
 function applyLook() {
   const st = look.apply(LOOKS[lookKey].look);
@@ -75,9 +77,9 @@ function applyLook() {
   for (const m of level.lampMats) m.emissiveIntensity = lerp(0.2, 1.6, st.night);
   VM.setLight(1 - st.night * 0.35);
 }
-$('lookSel').innerHTML = Object.entries(LOOKS).sort((a, b) => (a[0] === 'dusk-base' ? -1 : b[0] === 'dusk-base' ? 1 : a[1].name.localeCompare(b[1].name))).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
+$('lookSel').innerHTML = Object.entries(LOOKS).sort((a, b) => (a[0] === 'day' ? -1 : b[0] === 'day' ? 1 : a[0] === 'dusk-base' ? -1 : b[0] === 'dusk-base' ? 1 : a[1].name.localeCompare(b[1].name))).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
 $('lookSel').value = lookKey;
-$('lookSel').onchange = () => { lookKey = $('lookSel').value; try { localStorage.setItem('game.look', JSON.stringify(lookKey)); } catch (e) {} applyLook(); };
+$('lookSel').onchange = () => { lookKey = $('lookSel').value; try { localStorage.setItem('game.look.v2', JSON.stringify(lookKey)); } catch (e) {} applyLook(); };
 applyLook();
 
 // ---------------------------------------------------------------- audio
@@ -132,7 +134,7 @@ const prevPos = new THREE.Vector3(); let prevHeight = 1.8;
 function startRound() {
   for (const v of actorVis.values()) { scene.remove(v.obj); CLIB.dispose(v.obj); }
   actorVis.clear();
-  world = makeWorld({ collider: level.collider, moveParams: P, weapons: WEAPONS, loadout: LOADOUT });
+  world = makeWorld({ collider: level.collider, shotCollider: level.shotCollider, moveParams: P, weapons: WEAPONS, loadout: LOADOUT });
   const sp = level.markers.find(m => m.kind === 'playerSpawn') || { pos: [0, 0, 0], rotY: 0 };
   me = addPlayer(world, { pos: [sp.pos[0], sp.pos[1] + 0.05, sp.pos[2]], yaw: D2R(sp.rotY) });
   lookYP.yaw = D2R(sp.rotY); lookYP.pitch = 0; recoilOff.yaw = recoilOff.pitch = 0;
@@ -447,7 +449,7 @@ if (AUTOTEST) {
       const dx = a.pos.x - e.x, dy = y - e.y, dz = a.pos.z - e.z;
       lookYP.yaw = Math.atan2(-dx, -dz); lookYP.pitch = Math.atan2(dy, Math.hypot(dx, dz));
     },
-    get ai() { return world.ai; }, godMode(on) { if (on) { me.maxHp = me.hp = 1e6; } else { me.maxHp = 100; me.hp = 100; } },
+    get ai() { return world.ai; }, colliders: () => ({ move: level.collider.geometry.attributes.position.count / 3, shot: level.shotCollider.geometry.attributes.position.count / 3 }), loadMs: () => loadMs, godMode(on) { if (on) { me.maxHp = me.hp = 1e6; } else { me.maxHp = 100; me.hp = 100; } },
     teleport(x, z) { me.body.pos.set(x, 0.2, z); me.body.vel.set(0, 0, 0); prevPos.copy(me.body.pos); },
   };
 }

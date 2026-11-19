@@ -112,9 +112,12 @@ export function createLevelKit(THREE, kits) {
     if (rec.type === 'kit') kits[rec.kit].dispose(root.children[0]);
     else root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
   }
-  // Collision: primitives use their exact geometry, kit assets their oriented bounding box,
-  // plus a ground slab. Returns the merged geometry, its BVH, and a surface index per triangle.
-  function buildCollider(roots, { groundSize = 400 } = {}) {
+  // Collision, plus a ground slab. Returns the merged geometry, its BVH, and a surface index per triangle.
+  //   precise = false (movement): primitives exact, kit assets as their oriented bounding box, so the
+  //                               player and enemies slide along props without snagging on details.
+  //   precise = true (bullets, sight): every visible triangle, so shots and line of sight follow the
+  //                               real shape (gaps in a bus shelter, the space under a street light's arm).
+  function buildCollider(roots, { groundSize = 400, precise = false } = {}) {
     const geos = [], surf = [];
     const push = (g, surface) => {
       const ng = g.index ? g.toNonIndexed() : g;
@@ -126,7 +129,17 @@ export function createLevelKit(THREE, kits) {
       const rec = root.userData.rec;
       if (!rec || rec.type === 'marker') continue;
       root.updateMatrixWorld(true);
-      if (rec.type === 'prim') {
+      if (rec.type === 'prim' || precise) {
+        // lamp glow meshes are visual only
+        // skip helper meshes (size-reference figures); windows and windshields read as glass
+        root.traverse(o => {
+          if (!o.isMesh || o.userData.isPropLight) return;
+          const role = !Array.isArray(o.material) && o.material && o.material.userData ? o.material.userData.role : null;
+          if (role === 'reference') return;
+          const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
+          push(g, rec.type === 'prim' ? 'concrete' : role === 'glass' ? 'glass' : surfaceOf(rec));
+        });
+      } else if (false) {
         root.traverse(o => { if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); push(g, 'concrete'); } });
       } else {
         const inner = root.children[0], bb = new THREE.Box3();
@@ -154,9 +167,10 @@ export function createLevelKit(THREE, kits) {
     }
     root.updateMatrixWorld(true);
     const collider = buildCollider(roots, { groundSize });
+    const shotCollider = buildCollider(roots, { groundSize, precise: true });
     const lights = [], lampMats = new Set();
     root.traverse(o => { if (o.isPointLight || o.isSpotLight) lights.push(o); if (o.isMesh && o.material && o.material.userData && o.material.userData.role === 'lamp') lampMats.add(o.material); });
-    return { root, markers, collider, lights, lampMats: [...lampMats] };
+    return { root, markers, collider, shotCollider, lights, lampMats: [...lampMats] };
   }
   return { PRIMS, MARKERS, COLORS, primMat, gridTex, buildPrim, buildMarker, buildRecord, disposeRecord, buildCollider, buildLevel };
 }

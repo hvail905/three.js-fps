@@ -139,3 +139,16 @@ test('with AI, the same inputs still give the same result', () => {
   const run = () => { const { world, me } = setup({ ai: true, yaw: 0, targets: [[0, 0, -14], [5, 0, -18]] }); hold(world, me, 60 * 8, { moveX: 0.5 }); return JSON.stringify([world.actors.map(a => [a.hp, a.pos.x.toFixed(4), a.pos.z.toFixed(4), a.agent.state]), me.hp, world.stats]); };
   assert.equal(run(), run());
 });
+
+test('bullets and sight use the shot collider; bodies use the movement collider', () => {
+  // movement collider: a big box (like a prop's bounding box); shot collider: only a thin pole inside it
+  const bigBox = new THREE.BoxGeometry(4, 4, 1).translate(0, 2, -6), pole = new THREE.BoxGeometry(0.15, 4, 0.15).translate(1.6, 2, -6);
+  const world = makeWorld({ collider: collider([bigBox]), shotCollider: collider([pole]), weapons: PRESETS, loadout: ['rifle'] });
+  const me = addPlayer(world, { pos: [0, 0.05, 0] }); addActor(world, { pos: [0, 0, -15], yaw: Math.PI });
+  for (let i = 0; i < 10; i++) stepWorld(world, { [me.id]: makeInput() });
+  const ev = hold(world, me, 120, { trigger: true, ads: true, ...aim(me, [0, 0, -15], 1.25) });
+  assert.ok(ev.some(e => e.type === 'hit'), 'shots pass the empty part of the bounding box');
+  // walking forward still stops at the big box
+  hold(world, me, 180, { moveZ: 1 });
+  assert.ok(me.body.pos.z > -5.6, `stopped by the movement box at z ${me.body.pos.z.toFixed(2)}`);
+});

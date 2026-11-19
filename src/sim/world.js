@@ -3,7 +3,9 @@
 // Rendering, audio and HUD only react to those events; nothing here touches the DOM or a renderer.
 // That split is what lets a co-op host run this same code and send events to clients.
 //
-// Collision comes from the level collider: { bvh (three-mesh-bvh), triSurface (Uint8Array) }.
+// Collision comes from the level: { bvh (three-mesh-bvh), triSurface (Uint8Array) }.
+//   collider: what bodies stand on and bump into (props as boxes).
+//   shotCollider: what bullets and line of sight hit (exact prop shapes). Defaults to collider.
 import * as THREE from 'three';
 import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from './movement.js';
 import { makeGunState, stepGun, damageAt } from './gun.js';
@@ -36,8 +38,8 @@ export function makeInput() {
 }
 
 // weapons: { id: statsObject } from data/weapons. loadout: weapon ids in slot order.
-export function makeWorld({ collider, moveParams = DEFAULT_PARAMS, weapons, loadout }) {
-  return { time: 0, tick: 0, collider, P: { ...moveParams }, weapons, loadout: [...loadout], players: [], actors: [], projectiles: [], nextId: 1, cleared: false, lost: false, ai: null, stats: { shots: 0, bullets: 0, hits: 0, kills: 0, heads: 0, damageTaken: 0 } };
+export function makeWorld({ collider, shotCollider = collider, moveParams = DEFAULT_PARAMS, weapons, loadout }) {
+  return { time: 0, tick: 0, collider, shotCollider, P: { ...moveParams }, weapons, loadout: [...loadout], players: [], actors: [], projectiles: [], nextId: 1, cleared: false, lost: false, ai: null, stats: { shots: 0, bullets: 0, hits: 0, kills: 0, heads: 0, damageTaken: 0 } };
 }
 
 export function addPlayer(world, { pos, yaw = 0 }) {
@@ -91,11 +93,11 @@ function raySphere(o, d, c, r) {
 }
 function castWorld(world, origin, dir, maxDist) {
   _ray.origin.copy(origin); _ray.direction.copy(dir);
-  const h = world.collider.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, maxDist);
+  const h = world.shotCollider.bvh.raycastFirst(_ray, THREE.DoubleSide, 0, maxDist);
   if (!h) return null;
   const n = h.face ? h.face.normal.clone() : new THREE.Vector3(0, 1, 0);
   if (n.dot(dir) > 0) n.negate();
-  return { dist: h.distance, point: h.point.clone(), normal: n, surface: world.collider.triSurface[h.faceIndex] ?? 0 };
+  return { dist: h.distance, point: h.point.clone(), normal: n, surface: world.shotCollider.triSurface[h.faceIndex] ?? 0 };
 }
 
 // Resolve one bullet path segment: hits the nearest of world geometry and actor hitboxes.
@@ -128,12 +130,13 @@ function resolveSegment(world, ev, shooter, S, origin, dir, maxDist, travelled) 
 // level collider (cells where a 0.4 m capsule would hit geometry between 0.4 m and 1.7 m are blocked),
 // with line of sight cast against the same collider. bounds: { x0, z0, width, depth } in meters.
 export function enableAI(world, { bounds, patrol = [], params = {}, seed = 1 }) {
-  const bvh = world.collider.bvh, box = new THREE.Box3(), ident = new THREE.Matrix4(), ray = new THREE.Ray(), d = new THREE.Vector3();
+  // walking uses the movement collider; seeing uses the bullet collider, so sight matches where shots go
+  const bvh = world.collider.bvh, sight = world.shotCollider.bvh, box = new THREE.Box3(), ident = new THREE.Matrix4(), ray = new THREE.Ray(), d = new THREE.Vector3();
   const blockedFn = (x, z, R) => { box.min.set(x - R, 0.4, z - R); box.max.set(x + R, 1.7, z + R); return bvh.intersectsBox(box, ident); };
   const losFn = (ax, az, ah, bx, bz, bh) => {
     d.set(bx - ax, bh - ah, bz - az); const len = d.length(); if (len < 0.05) return true;
     ray.origin.set(ax, ah, az); ray.direction.copy(d).multiplyScalar(1 / len);
-    return !bvh.raycastFirst(ray, THREE.DoubleSide, 0, len - 0.05);
+    return !sight.raycastFirst(ray, THREE.DoubleSide, 0, len - 0.05);
   };
   const enemies = world.actors.filter(a => a.team === 'enemy');
   const W = makeAIWorld({ width: bounds.width, depth: bounds.depth, x0: bounds.x0, z0: bounds.z0, cell: 0.5, spawns: enemies.map(a => [a.pos.x, a.pos.z, a.yaw]), patrol, seed, blockedFn, losFn });
