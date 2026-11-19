@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { SURFACES } from './level.js';
+import { PIXEL_TEXTURES } from './pixeltex.js';
+import { PROP_BUILDERS, buildFixture } from './sewer-props.js';
 import { mulberry32 } from './terrain.js';
 
 const SURF = name => Math.max(0, SURFACES.indexOf(name));
@@ -106,21 +108,20 @@ export function buildSewer(def, { visuals = true } = {}) {
   const center = ([c, r]) => [c * C + C / 2, r * C + C / 2];
   const rnd = mulberry32(1234);
 
+  const pix = (name, o = {}) => { const t = PIXEL_TEXTURES[name](); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: o.rough ?? 0.85, metalness: o.metal ?? 0, color: o.color ?? 0xffffff }); };
   const mats = !visuals ? null : {
-    brick: material(brickCanvases(7), { rough: 0.8, normal: 3 }),
-    floor: material(concreteCanvases(11, [92, 88, 78], 0.5), { rough: 0.45, normal: 1.5 }), // wet: low roughness so the flashlight glints
-    ceil: material(concreteCanvases(13, [66, 64, 58], 0.6), { rough: 0.9, normal: 1.5 }),
-    metal: material(metalCanvases(17), { rough: 0.6, metal: 0.5, normal: 1.5 }),
-    channel: material(concreteCanvases(19, [44, 46, 36], 0.7), { rough: 0.3, normal: 1.2 }),
+    brick: pix('brick'), tile: pix('tile', { rough: 0.5 }), floor: pix('floor', { rough: 0.5 }), // wet floors: low roughness so lights glint
+    ceil: pix('ceiling'), metal: pix('plate', { rough: 0.55, metal: 0.4 }), channel: pix('slime', { rough: 0.3 }),
+    gdark: pix('brick', { color: 0x4a4a4a }), void: new THREE.MeshBasicMaterial({ color: 0x020202 }),
   };
-  const Q = { brick: [], floor: [], ceil: [], metal: [], channel: [] };
+  const Q = { brick: [], tile: [], floor: [], ceil: [], metal: [], channel: [], gdark: [], void: [] };
   const surfQ = { concrete: [], metal: [], water: [] }; // same quads, grouped by impact surface for the collider
 
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const ch = at(c, r); if (!open(ch)) continue;
     const { floor: f, ceil: k } = hOf(ch), x0 = c * C, x1 = x0 + C, z0 = r * C, z1 = z0 + C;
-    const vent = ch === 'v', water = ch === '~';
-    const floorM = vent ? 'metal' : water ? 'channel' : 'floor', wallM = vent ? 'metal' : water ? 'channel' : 'brick', ceilM = vent ? 'metal' : 'ceil';
+    const vent = ch === 'v', water = ch === '~', room = ch === 'R', gal = ch === 'g';
+    const floorM = vent ? 'metal' : water ? 'channel' : room ? 'tile' : 'floor', wallM = vent ? 'metal' : water ? 'channel' : room ? 'tile' : gal ? 'gdark' : 'brick', ceilM = vent ? 'metal' : 'ceil';
     const fq = { p: [[x0, f, z1], [x1, f, z1], [x1, f, z0], [x0, f, z0]], uv: [[x0 / 2, z1 / 2], [x1 / 2, z1 / 2], [x1 / 2, z0 / 2], [x0 / 2, z0 / 2]] };
     Q[floorM].push(fq); surfQ[water ? 'water' : vent ? 'metal' : 'concrete'].push(fq);
     const cq = { p: [[x0, k, z0], [x1, k, z0], [x1, k, z1], [x0, k, z1]], uv: [[x0 / 2, z0 / 2], [x1 / 2, z0 / 2], [x1 / 2, z1 / 2], [x0 / 2, z1 / 2]] };
@@ -138,7 +139,8 @@ export function buildSewer(def, { visuals = true } = {}) {
         const q = { p: [[B[0], y0, B[1]], [A[0], y0, A[1]], [A[0], y1, A[1]], [B[0], y1, B[1]]], uv: [[u1, y0 / 2], [u0, y0 / 2], [u0, y1 / 2], [u1, y1 / 2]] }; // B->A so the face points into this cell
         Q[m].push(q); surfQ[m === 'metal' ? 'metal' : 'concrete'].push(q);
       };
-      if (!open(nch)) { wall(f, k, wallM); continue; }
+      // the far end of a barred side tunnel is a black void, so it reads as a tunnel running on into the dark
+      if (!open(nch)) { wall(f, k, gal && open(at(c - dc, r - dr)) ? 'void' : wallM); continue; }
       const n = hOf(nch);
       if (n.floor > f) wall(f, Math.min(n.floor, k), water ? 'channel' : wallM);
       if (n.ceil < k) wall(Math.max(n.ceil, f), k, nch === 'v' || vent ? 'metal' : wallM);
@@ -197,30 +199,163 @@ export function buildSewer(def, { visuals = true } = {}) {
     water.receiveShadow = true; root.add(water);
   }
 
-  // ---------- lights (fixtures + point lights) ----------
+  // ---------- lights: fixtures by kind ----------
+  // side: n/s/w/e mounts the fixture on that wall of the cell; no side hangs it from the ceiling
+  const SIDE = { n: [0, -1, 0], s: [0, 1, Math.PI], w: [-1, 0, Math.PI / 2], e: [1, 0, -Math.PI / 2] };
+  const mount = (obj, cell, side, y) => {
+    const [cx, cz] = center(cell);
+    if (side && SIDE[side]) { const [dc, dr, ry] = SIDE[side]; obj.position.set(cx + dc * C / 2, y, cz + dr * C / 2); obj.rotation.y = ry; }
+    else obj.position.set(cx, y, cz);
+  };
   const lights = [];
-  const bulbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd9a0, emissiveIntensity: 2 });
-  for (const L of def.lights || []) {
-    const [cx, cz] = center(L.cell), ch = at(...L.cell), y = L.height ?? hOf(ch).ceil - 0.35;
-    const light = new THREE.PointLight(L.color, L.intensity * 6, 16, 1.7); // data intensities are relative; x6 to physical units light.position.set(cx, y - 0.15, cz);
-    const bm = bulbMat.clone(); bm.emissive.set(L.color);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), bm); bulb.position.copy(light.position);
-    const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.08, 0.18, 8, 1, true), dressMat); cage.position.set(cx, y - 0.1, cz);
-    const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, hOf(ch).ceil - y, 4), dressMat); wire.position.set(cx, (hOf(ch).ceil + y) / 2, cz);
-    root.add(light, bulb, cage, wire);
-    lights.push({ light, bulb, base: L.intensity * 6, flicker: L.flicker || 0, phase: rnd() * 100 });
+  if (visuals) for (const L of def.lights || []) {
+    const ch = at(...L.cell), { floor: f, ceil: k } = hOf(ch);
+    const y = L.height ?? (L.side ? Math.min(k - 0.4, f + 2.3) : L.kind === 'tube' ? k - 0.25 : k - 0.6);
+    const fx = buildFixture(L, k, y); mount(fx.group, L.cell, L.side, y); root.add(fx.group);
+    lights.push({ light: fx.light, bulb: fx.glow, kind: L.kind, base: L.intensity * 6, flicker: L.flicker || 0, phase: rnd() * 100 });
+  }
+
+  // ---------- props: data-driven dressing that says someone rebuilt this place ----------
+  const cameras = [], speakers = [], propSolids = [];
+  const WALL_KINDS = new Set(['camera', 'speaker', 'stencil', 'window', 'cabinet', 'locker', 'shelf']);
+  for (const p of def.props || []) {
+    const build = PROP_BUILDERS[p.kind]; if (!build) continue;
+    const ch = at(...p.cell), { floor: f, ceil: k } = hOf(ch);
+    let out, nk = k;
+    if (p.kind === 'door') { const [dc, dr] = SIDE[p.side]; nk = Math.min(k, hOf(at(p.cell[0] + dc, p.cell[1] + dr)).ceil); }
+    out = build(p, { cell: C, openingHeight: nk - f });
+    const g = out.group;
+    if (p.kind === 'stencil' && p.side === 'floor') { // painted on the floor: rot is degrees clockwise from +x seen from above
+      if (g.children[0]) g.children[0].rotation.x = -Math.PI / 2; const [cx, cz] = center(p.cell); g.position.set(cx, f + 0.002, cz); g.rotation.y = -(p.rot || 0) * Math.PI / 180;
+    } else if (p.kind === 'door') {
+      const [dc, dr] = SIDE[p.side], [cx, cz] = center(p.cell); g.position.set(cx + dc * C / 2, f, cz + dr * C / 2); g.rotation.y = dc ? Math.PI / 2 : 0;
+    } else if (WALL_KINDS.has(p.kind) && p.side) {
+      const y = p.kind === 'camera' ? k - 0.25 : p.kind === 'speaker' ? (p.y ?? Math.min(k - 0.5, f + 2.2)) : ['cabinet', 'locker', 'shelf'].includes(p.kind) ? f : f + (p.y ?? 1.5);
+      mount(g, p.cell, p.side, y);
+    } else { const [cx, cz] = center(p.cell); g.position.set(cx, f, cz); g.rotation.y = -(p.rot || 0) * Math.PI / 180; }
+    if (visuals) root.add(g);
+    g.updateMatrixWorld(true);
+    for (const sg of out.solids) propSolids.push([sg.applyMatrix4(g.matrixWorld), p.kind === 'crate' || p.kind === 'shelf' ? 'wood' : 'metal']);
+    if (out.light && visuals) lights.push({ light: out.light, bulb: null, kind: 'window', base: out.light.intensity, flicker: 0, phase: 0 });
+    if (p.kind === 'camera') cameras.push({ head: out.parts.head, led: out.parts.led, group: g, phase: rnd() * 6 });
+    if (p.kind === 'speaker') { const v = new THREE.Vector3(); g.getWorldPosition(v); speakers.push([v.x, v.y, v.z]); }
+  }
+
+  // ---------- architecture: brick ribs along the tunnels, trim in the tiled rooms ----------
+  // Compared against Gloomwood/Pigface, flat walls with texture alone read as empty; the references break every
+  // wall up with pilasters, beams, frames and trim. World-space UVs keep the brick scale continuous on the ribs.
+  const worldUV = geo => {
+    const g = geo.index ? geo.toNonIndexed() : geo, P = g.attributes.position, N = g.attributes.normal, uv = new Float32Array(P.count * 2);
+    for (let i = 0; i < P.count; i++) { const nx = Math.abs(N.getX(i)), ny = Math.abs(N.getY(i)), x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+      const [u, v] = ny > 0.5 ? [x, z] : nx > 0.5 ? [z, y] : [x, y]; uv[i * 2] = u / 2; uv[i * 2 + 1] = v / 2; }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); return g;
+  };
+  const ribs = [], trim = [], beams = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const ch = at(c, r); if (ch !== '.') continue;
+    const { floor: f, ceil: k } = hOf(ch), [cx, cz] = center([c, r]);
+    const alongX = open(at(c - 1, r)) && open(at(c + 1, r)) && !open(at(c, r - 1)) && !open(at(c, r + 1));
+    const alongZ = open(at(c, r - 1)) && open(at(c, r + 1)) && !open(at(c - 1, r)) && !open(at(c + 1, r));
+    if (!(alongX && c % 3 === 0) && !(alongZ && r % 3 === 0)) continue;
+    const pw = 0.45, pd = 0.2, bh = 0.3;
+    for (const s of [-1, 1]) {
+      const g = alongX ? new THREE.BoxGeometry(pw, k - f, pd).translate(cx, f + (k - f) / 2, cz + s * (C / 2 - pd / 2)) : new THREE.BoxGeometry(pd, k - f, pw).translate(cx + s * (C / 2 - pd / 2), f + (k - f) / 2, cz);
+      ribs.push(g); propSolids.push([g.clone(), 'concrete']);
+    }
+    ribs.push(alongX ? new THREE.BoxGeometry(pw, bh, C).translate(cx, k - bh / 2, cz) : new THREE.BoxGeometry(C, bh, pw).translate(cx, k - bh / 2, cz));
+  }
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    if (at(c, r) !== 'R') continue; const f = hOf('R').floor, [cx, cz] = center([c, r]);
+    for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      if (open(at(c + dc, r + dr))) continue;
+      const ex = cx + dc * (C / 2 - 0.03), ez = cz + dr * (C / 2 - 0.03), w = dr ? C : 0.06, d = dc ? C : 0.06;
+      trim.push(new THREE.BoxGeometry(w, 0.14, d).translate(ex, f + 0.07, ez), new THREE.BoxGeometry(w, 0.06, d).translate(ex, f + 1.15, ez));
+    }
+  }
+  // steel I-beams across the pump hall ceiling so the tall space has structure instead of a black lid
+  for (let c = 0; c < cols; c++) {
+    if (c % 2) continue; let r0 = -1, r1 = -1;
+    for (let r = 0; r < rows; r++) if (at(c, r) === 'P') { if (r0 < 0) r0 = r; r1 = r; }
+    if (r0 < 0) continue; const k = hOf('P').ceil, x = c * C + C / 2, z0 = r0 * C, z1 = (r1 + 1) * C, L = z1 - z0, zc = (z0 + z1) / 2;
+    beams.push(new THREE.BoxGeometry(0.3, 0.05, L).translate(x, k - 0.03, zc), new THREE.BoxGeometry(0.06, 0.4, L).translate(x, k - 0.25, zc), new THREE.BoxGeometry(0.3, 0.05, L).translate(x, k - 0.48, zc));
+    for (let z = z0 + 1; z < z1; z += 2) beams.push(new THREE.CylinderGeometry(0.012, 0.012, 1.4, 4).translate(x + 0.3, k - 1.2, z), new THREE.BoxGeometry(0.4, 0.06, 0.15).translate(x + 0.3, k - 1.9, z)); // hanging chains and hooks
+  }
+  if (visuals && beams.length) { const m = new THREE.Mesh(mergeGeometries(beams.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), dressMat); m.castShadow = true; root.add(m); }
+  if (visuals && ribs.length) { const m = new THREE.Mesh(mergeGeometries(ribs.map(worldUV), false), mats.brick); m.castShadow = m.receiveShadow = true; root.add(m); }
+  if (visuals && trim.length) { const m = new THREE.Mesh(mergeGeometries(trim.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), new THREE.MeshStandardMaterial({ color: 0x2c3a30, roughness: 0.5, flatShading: true })); m.receiveShadow = true; root.add(m); }
+
+  // ---------- clutter: the references fill every floor edge and wall with small things ----------
+  // No loose bottles or bricks here, so junk never reads as a pickup.
+  if (visuals) {
+    const J = { paper: [], card: [], can: [], wood: [], rag: [], box: [], conduit: [] }, rr = mulberry32(99);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const ch = at(c, r); if (!'.RPX'.includes(ch)) continue;
+      const { floor: f, ceil: k } = hOf(ch), [cx, cz] = center([c, r]);
+      for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        if (open(at(c + dc, r + dr))) continue;
+        const wx = cx + dc * (C / 2 - 0.25), wz = cz + dr * (C / 2 - 0.25), along = () => (rr() - 0.5) * C * 0.8;
+        const px = () => wx + (dr ? along() : (rr() - 0.5) * 0.2), pz = () => wz + (dc ? along() : (rr() - 0.5) * 0.2);
+        if (rr() < 0.45) for (let i = 0; i < 2 + rr() * 4; i++) J.paper.push(new THREE.PlaneGeometry(0.21 + rr() * 0.1, 0.28 + rr() * 0.1).rotateX(-Math.PI / 2).rotateY(rr() * 6).translate(px() + (rr() - 0.5) * 0.6 * -dc, f + 0.004 + i * 0.001, pz() + (rr() - 0.5) * 0.6 * -dr));
+        if (rr() < 0.25) for (let i = 0; i < 1 + rr() * 3; i++) J.can.push(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 7).rotateZ(rr() < 0.6 ? Math.PI / 2 : 0).rotateY(rr() * 6).translate(px(), f + 0.04, pz()));
+        if (rr() < 0.18) { const s = 0.3 + rr() * 0.3; J.card.push(new THREE.BoxGeometry(s * 1.3, s * 0.8, s).rotateY(rr() * 0.6).translate(px(), f + s * 0.4, pz())); if (rr() < 0.5) J.card.push(new THREE.BoxGeometry(s, s * 0.6, s * 0.8).rotateY(rr()).translate(px(), f + s * 0.8 + s * 0.3, pz())); }
+        if (rr() < 0.12) { const g = new THREE.BoxGeometry(0.15, 1.6 + rr() * 0.6, 0.03).rotateX(dr * 0.25).rotateZ(-dc * 0.25); g.translate(cx + dc * (C / 2 - 0.2) + (dr ? along() : 0), f + 0.85, cz + dr * (C / 2 - 0.2) + (dc ? along() : 0)); J.wood.push(g); }
+        if (rr() < 0.15) J.rag.push(new THREE.SphereGeometry(0.18, 6, 4).scale(1.4, 0.35, 1).rotateY(rr() * 6).translate(px(), f + 0.04, pz()));
+        // wall: junction boxes with conduit to the ceiling, and notices pinned up by whoever runs this place
+        if (ch !== 'X' && rr() < 0.16) {
+          const ex = cx + dc * (C / 2 - 0.06), ez = cz + dr * (C / 2 - 0.06), o = (rr() - 0.5) * C * 0.6, x = ex + (dr ? o : 0), z = ez + (dc ? o : 0), y = f + 1.3 + rr() * 0.4;
+          J.box.push(new THREE.BoxGeometry(dr ? 0.3 : 0.12, 0.38, dc ? 0.3 : 0.12).translate(x, y, z), new THREE.CylinderGeometry(0.02, 0.02, k - y, 5).translate(x + (dr ? 0.08 : 0), (k + y) / 2, z + (dc ? 0.08 : 0)));
+        }
+        if (ch !== 'X' && rr() < 0.12) {
+          const ex = cx + dc * (C / 2 - 0.012), ez = cz + dr * (C / 2 - 0.012), o = (rr() - 0.5) * C * 0.6;
+          const g = new THREE.PlaneGeometry(0.21, 0.3).rotateZ((rr() - 0.5) * 0.15).rotateY(dc ? -dc * Math.PI / 2 : dr > 0 ? Math.PI : 0); g.translate(ex + (dr ? o : 0), f + 1.45 + rr() * 0.2, ez + (dc ? o : 0)); J.paper.push(g);
+        }
+      }
+    }
+    const JM = { paper: new THREE.MeshStandardMaterial({ color: 0x9c9682, roughness: 0.95, side: THREE.DoubleSide }), card: new THREE.MeshStandardMaterial({ color: 0x5e4a32, roughness: 1, flatShading: true }),
+      can: new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.5, metalness: 0.5, flatShading: true }), wood: new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9, flatShading: true }),
+      rag: new THREE.MeshStandardMaterial({ color: 0x3a3428, roughness: 1, flatShading: true }), box: dressMat, conduit: dressMat };
+    for (const [k, gs] of Object.entries(J)) if (gs.length) { const m = new THREE.Mesh(mergeGeometries(gs.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), JM[k]); m.receiveShadow = true; m.castShadow = k !== 'paper'; root.add(m); }
+  }
+
+  // ---------- bars across the mouths of the side tunnels ----------
+  const bars = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (at(c, r) === 'g') for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    const n = at(c + dc, r + dr); if (!open(n) || n === 'g') continue;
+    const [cx, cz] = center([c, r]), ex = cx + dc * C / 2, ez = cz + dr * C / 2, k = Math.min(hOf('g').ceil, hOf(n).ceil);
+    for (let i = 0; i < 9; i++) { const o = -C / 2 + (i + 0.5) * C / 9; bars.push(new THREE.CylinderGeometry(0.025, 0.025, k, 6).translate(ex + (dr ? o : 0), k / 2, ez + (dc ? o : 0))); }
+    for (const y of [0.15, 1.2, k - 0.1]) bars.push(new THREE.BoxGeometry(dr ? C : 0.06, 0.06, dc ? C : 0.06).translate(ex, y, ez));
+    propSolids.push([new THREE.BoxGeometry(dr ? C : 0.12, k, dc ? C : 0.12).translate(ex, k / 2, ez), 'metal']);
+  }
+  if (bars.length && visuals) { const m = new THREE.Mesh(mergeGeometries(bars.map(g => g.index ? g.toNonIndexed() : g), false), rust); m.castShadow = true; root.add(m); }
+
+  // ---------- cable bundles stapled along corridor ceilings ----------
+  if (visuals) {
+    const cab = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const ch = at(c, r); if (ch !== '.' && ch !== 'R') continue;
+      const k = hOf(ch).ceil, [cx, cz] = center([c, r]), alongX = open(at(c - 1, r)) || open(at(c + 1, r));
+      for (let i = 0; i < 3; i++) {
+        const off = -0.5 + i * 0.07, sag = 0.04 + i * 0.02;
+        const g = new THREE.CylinderGeometry(0.018, 0.018, C, 5).rotateZ(Math.PI / 2);
+        if (!alongX) g.rotateY(Math.PI / 2);
+        g.translate(cx + (alongX ? 0 : off), k - 0.08 - sag, cz + (alongX ? off : 0)); cab.push(g);
+      }
+      if ((c + r) % 2 === 0) cab.push(new THREE.BoxGeometry(alongX ? 0.04 : 0.3, 0.1, alongX ? 0.3 : 0.04).translate(cx + (alongX ? 0 : -0.43), k - 0.08, cz + (alongX ? -0.43 : 0)));
+    }
+    if (cab.length) { const m = new THREE.Mesh(mergeGeometries(cab.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.5 })); root.add(m); }
   }
 
   // ---------- collider: every surface quad + solid dressing, with an impact surface per triangle ----------
   const parts = [], surf = [];
   for (const [name, qs] of Object.entries(surfQ)) { const g = toGeometry(qs); if (!g) continue; const ng = g.toNonIndexed(); for (const k of Object.keys(ng.attributes)) if (k !== 'position') ng.deleteAttribute(k); parts.push(ng); surf.push([ng.attributes.position.count / 3, SURF(name === 'water' ? 'water' : name)]); }
+  for (const [g0, sname] of propSolids) { const g = g0.index ? g0.toNonIndexed() : g0; for (const k of Object.keys(g.attributes)) if (k !== 'position') g.deleteAttribute(k); parts.push(g); surf.push([g.attributes.position.count / 3, SURF(sname)]); }
   for (const [x, y, z, w, h, d] of solidBoxes) { const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z).toNonIndexed(); g.deleteAttribute('normal'); g.deleteAttribute('uv'); parts.push(g); surf.push([g.attributes.position.count / 3, SURF('metal')]); }
   const geometry = mergeGeometries(parts, false), triSurface = new Uint8Array(geometry.attributes.position.count / 3);
   let t = 0; for (const [n, s] of surf) { triSurface.fill(s, t, t + n); t += n; }
   const collider = { geometry, bvh: new MeshBVH(geometry), triSurface };
 
   return {
-    root, collider, lights, water, mats,
+    root, collider, lights, water, mats, cameras, speakers,
     bounds: { x0: 0, z0: 0, width: cols * C, depth: rows * C },
     cellCenter: center, cellAt: (x, z) => at(Math.floor(x / C), Math.floor(z / C)), heightsAt: (x, z) => hOf(at(Math.floor(x / C), Math.floor(z / C))),
   };
