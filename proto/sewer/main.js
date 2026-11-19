@@ -5,11 +5,11 @@ import def from '../../data/sewer/gallery-1.json';
 import movementData from '../../data/movement/standard.json';
 import pistolData from '../../data/weapons/pistol.json';
 import { createWeaponLibrary } from '../../src/assets/weapons.js';
-import { createCharacterLibrary } from '../../src/assets/characters.js';
+import { createZombieKit, ZOMBIE_VARIANTS } from '../../src/assets/zombie.js';
 import { buildSewer } from '../../src/world/sewer.js';
 import { SURFACES } from '../../src/world/level.js';
 import { createLook } from '../../src/render/look.js';
-import { createViewmodel } from '../../src/render/viewmodel.js';
+import { createViewmodel, buildArm } from '../../src/render/viewmodel.js';
 import { createCameraFeel, VIEW_DEFAULTS } from '../../src/render/camera-feel.js';
 import { ParticleSystem, EFFECTS } from '../../src/fx/particles.js';
 import { createGore } from '../../src/fx/gore.js';
@@ -46,19 +46,19 @@ look.sun.castShadow = false;
 const level = buildSewer(def);
 scene.add(level.root);
 let lookKey = readLS('sewer.look') || 'sewer'; if (!LOOKS[lookKey]) lookKey = 'sewer';
-function applyLook() { const st = look.apply(LOOKS[lookKey].look); look.sun.intensity = 0; look.hemi.intensity = def.ambient ?? (0.03 + 0.05 * (1 - st.night)); if (def.ambientSky) { look.hemi.color.set(def.ambientSky); look.hemi.groundColor.set(def.ambientGround || '#000000'); } VM.setLight(0.35); }
+function applyLook() { const st = look.apply(LOOKS[lookKey].look); look.sun.intensity = 0; look.hemi.intensity = def.ambient ?? (0.03 + 0.05 * (1 - st.night)); if (def.ambientSky) { look.hemi.color.set(def.ambientSky); look.hemi.groundColor.set(def.ambientGround || '#000000'); } VM.setLight(def.viewLight ?? 0.35); }
 $('lookSel').innerHTML = Object.entries(LOOKS).map(([k, f]) => `<option value="${k}">${f.name}</option>`).join('');
 $('lookSel').value = lookKey;
 $('lookSel').onchange = () => { lookKey = $('lookSel').value; try { localStorage.setItem('sewer.look', JSON.stringify(lookKey)); } catch (e) {} applyLook(); };
 
 // the flashlight is the main light: a shadowed spot hanging just right of the eyes
-const flash = new THREE.SpotLight(0xfff1dc, 115, 28, 0.48, 0.7, 1.8);
+const flash = new THREE.SpotLight(0xfff1dc, 130, 28, 0.48, 0.7, 1.8);
 flash.castShadow = true; flash.shadow.mapSize.set(1024, 1024); flash.shadow.bias = -0.0008; flash.shadow.camera.near = 0.1;
-flash.position.set(0.18, -0.12, 0.05); camera.add(flash); flash.target.position.set(0.05, -0.05, -1); camera.add(flash.target);
+flash.position.set(0.18, -0.12, 0.35); camera.add(flash); // set back from the lens so things at arm's length do not blow out flash.target.position.set(0.05, -0.05, -1); camera.add(flash.target);
 const fill = new THREE.PointLight(0xc8d4ff, 1.6, 6, 2); camera.add(fill); // faint bounce so walls next to you are not pure black
 let lightOn = true;
 
-const WLIB = createWeaponLibrary(THREE), CLIB = createCharacterLibrary(THREE);
+const WLIB = createWeaponLibrary(THREE), ZK = createZombieKit();
 const VM = createViewmodel(WLIB);
 look.addOverlay(VM.scene, VM.camera);
 applyLook();
@@ -152,11 +152,6 @@ function voiceTick(dt) {
 function note(text, time = 2.2) { const n = $('note'); n.textContent = text; n.style.opacity = 1; clearTimeout(note.h); note.h = setTimeout(() => n.style.opacity = 0, time * 1000); }
 
 // ---------------------------------------------------------------- zombies (characters)
-const SKIN = ['#5f6a52', '#6a6e5a', '#555c4a', '#6e6656', '#5a6150'], CLOTH = ['#2a221d', '#20282a', '#332c26', '#1c1c1c', '#2a251d'], PANTS = ['#18181a', '#1f1d1a', '#151719'];
-function zombieParams(i) {
-  const id = i % 2 ? 'civilian' : 'thug', p = CLIB.randomize(id, 5000 + i * 7919);
-  return { id, params: { ...p, skinColor: SKIN[i % SKIN.length], shirtColor: CLOTH[(i * 3) % CLOTH.length], jacketColor: CLOTH[(i * 7) % CLOTH.length], pantsColor: PANTS[i % PANTS.length], hair: i % 3 === 0 ? 'long' : 'short', hairColor: '#1a1612', jacket: false, vest: false, helmet: false, backpack: false, carryWeapon: false } };
-}
 const JOINT = { head: 'head', armL: 'elbowL', armR: 'elbowR', legL: 'kneeL', legR: 'kneeR' };
 const ZONE = { head: 'head', torso: 'torso', armL: 'arm', armR: 'arm', legL: 'leg', legR: 'leg' };
 
@@ -178,16 +173,15 @@ let world = null, zvis = new Map(), pvis = new Map(), thrownVis = new Map(), end
 const lookYP = { yaw: 0, pitch: 0 }, recoilOff = { yaw: 0, pitch: 0 };
 const prevPos = new THREE.Vector3(); let prevHeight = 1.8;
 function startRound() {
-  for (const v of zvis.values()) { scene.remove(v.obj); CLIB.dispose(v.obj); } zvis.clear();
+  for (const v of zvis.values()) { scene.remove(v.obj); ZK.dispose(v.obj); } zvis.clear();
   for (const v of pvis.values()) scene.remove(v); pvis.clear();
   for (const v of thrownVis.values()) scene.remove(v); thrownVis.clear();
   gore.clear();
   world = makeSurvival({ def, collider: level.collider, bounds: level.bounds, moveParams: P, pistolStats: pistolData.stats, seed: 11 });
   lookYP.yaw = world.player.yaw; lookYP.pitch = -0.05; recoilOff.yaw = recoilOff.pitch = 0;
   world.zombies.forEach((z, i) => {
-    const { id, params } = zombieParams(i); params.height = z.height;
-    const obj = CLIB.build({ prop: id, params }); obj.rotation.order = 'YXZ'; obj.position.copy(z.pos); obj.rotation.y = z.yaw; scene.add(obj); // YXZ: lean and fall relative to its own facing
-    zvis.set(z.id, { obj, z, prev: z.pos.clone(), prevYaw: z.yaw, anim: { legs: 'idle', upper: 'free', t: i * 0.9, rate: 0.7 + (i % 3) * 0.1 }, lunge: 0 });
+    const obj = ZK.build(ZOMBIE_VARIANTS[i % ZOMBIE_VARIANTS.length], 3 + i * 7, z.height); obj.position.copy(z.pos); obj.rotation.y = z.yaw; scene.add(obj);
+    zvis.set(z.id, { obj, z, prev: z.pos.clone(), prevYaw: z.yaw, anim: ZK.makeState(i + 1) });
   });
   for (const k of world.pickups) addPickupVis(k);
   prevPos.copy(world.player.body.pos); prevHeight = world.player.body.height; feel.reset();
@@ -197,16 +191,18 @@ function startRound() {
 function addPickupVis(k) { const m = pickupMesh(k.kind); m.position.set(k.pos[0], k.pos[1] + 0.04, k.pos[2]); scene.add(m); pvis.set(k.id, m); }
 
 // ---------------------------------------------------------------- viewmodel: fists, pipe, pistol
-const fistMat = new THREE.MeshStandardMaterial({ color: 0xb08868, roughness: 0.8, flatShading: true }), sleeveMat = new THREE.MeshStandardMaterial({ color: 0x3a3630, roughness: 0.95, flatShading: true });
-const fists = new THREE.Group();
-for (const s of [1, -1]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.065, 0.08), fistMat); f.position.set(s * 0.16, -0.29, -0.46); const a = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.3), sleeveMat); a.position.set(s * 0.19, -0.36, -0.3); a.rotation.x = 0.35; fists.add(f, a); f.userData.side = s; }
-const boot = new THREE.Group(); { const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.3), new THREE.MeshStandardMaterial({ color: 0x1e1c1a, roughness: 0.8 })); const l = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.5, 0.12), sleeveMat); l.position.set(0, 0.25, 0.08); boot.add(b, l); boot.visible = false; VM.scene.add(boot); }
+// fists: two painted arms held up in a guard; each hand animates on its own
+const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x2c2a24, roughness: 0.95, flatShading: true });
+const fists = new THREE.Group(), fistR = buildArm(1, 'fist'), fistL = buildArm(-1, 'fist');
+const FIST_REST = { R: [0.12, -0.1, -0.38, 0.05, 0.45, -0.15], L: [-0.14, -0.12, -0.42, 0.05, -0.5, 0.15] }; // knuckles toward the target, slightly turned in
+fistR.position.set(...FIST_REST.R.slice(0, 3)); fistL.position.set(...FIST_REST.L.slice(0, 3)); fistR.scale.setScalar(0.85); fistL.scale.setScalar(0.85); fists.add(fistR, fistL);
+const boot = new THREE.Group(); { const bm = new THREE.MeshStandardMaterial({ color: 0x1e1c1a, roughness: 0.7, flatShading: true }); const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.3), bm); const sole = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.03, 0.31), new THREE.MeshStandardMaterial({ color: 0x0c0b0a, roughness: 0.9 })); sole.position.y = -0.06; const toe = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.07, 0.06), bm); toe.position.set(0, -0.01, -0.16); const l = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 8), sleeveMat); l.position.set(0, 0.27, 0.08); boot.add(b, sole, toe, l); boot.visible = false; VM.scene.add(boot); }
 function setHeld() {
   const s = world.player.slot;
   VM.setWeapon(s === 'fists' ? null : s);
   if (s === 'fists') VM.root.add(fists); else fists.removeFromParent();
 }
-let swingT = -1, swingKind = 'fists', kickT = -1, throwT = -1, kick = 0, flashT = 0;
+let swingT = -1, swingKind = 'fists', swingSide = 1, kickT = -1, throwT = -1, kick = 0, flashT = 0, hitStop = 0;
 
 // ---------------------------------------------------------------- input
 const keys = {}; let locked = AUTOTEST, attack = false, aimHeld = false, once = {};
@@ -295,20 +291,20 @@ function onEvents(evs) {
         gore.spatter(p, d, { raycast, amount: e.source === 'bullet' ? 1.2 : 0.6 });
         EFFECTS.dust(ps, p, d.clone().negate(), 0.5, 0x3a0404);
         if (e.severed) { gore.sever(v.obj, JOINT[e.severed], d); sound('impact', 'body', e.point, { power: 1.1 }); if (e.severed.startsWith('leg')) note('it goes down'); }
-        if (!e.killed) CLIB.hit(v.anim, ZONE[e.limb], e.local, e.side, Math.min(1.5, 0.6 + e.dmg / 25));
+        if (!e.killed) ZK.hit(v.anim, ZONE[e.limb], e.local, e.side, Math.min(1.6, 0.6 + e.dmg / 22) * (e.blunt ? 1.2 : 1));
         sound('impact', 'body', e.point, { power: e.blunt ? 0.9 : 0.7 });
         if (e.source === 'pipe') sound('impact', 'metal', e.point, { power: 0.25 });
         hitT = 0.2; $('hm').classList.toggle('kill', !!e.killed);
+        if (e.source === 'pipe' || e.source === 'fists' || e.source === 'kick') { hitStop = e.source === 'pipe' ? 0.085 : 0.05; shake = Math.max(shake, e.source === 'pipe' ? 0.35 : 0.2); } // contact: freeze the swing for a beat
         break;
       }
       case 'zdied': {
         const v = zvis.get(e.zombie); if (!v) break;
-        if (e.crawl) v.still = true; // already on the floor: stay down instead of playing a fall from standing
-        else CLIB.kill(v.anim, ZONE[e.limb] || 'torso', e.local);
+        ZK.kill(v.anim, ZONE[e.limb] || 'torso', e.local); // crawlers die where they lie
         setTimeout(() => gore.pool(v.z.pos, 1.3), 700);
         break;
       }
-      case 'swing': swingT = 0; swingKind = e.weapon; sound('swing', e.weapon === 'pipe' ? 'pipe' : 'fist'); break;
+      case 'swing': swingT = 0; swingKind = e.weapon; swingSide = -swingSide; sound('swing', e.weapon === 'pipe' ? 'pipe' : 'fist'); break;
       case 'kick': kickT = 0; sound('swing', 'kick'); break;
       case 'kickResolve': if (e.hit) { sound('impact', 'body', null, { power: 0.9 }); shake = Math.max(shake, 0.3); } break;
       case 'meleeWall': { const p = new THREE.Vector3(...e.point), n = new THREE.Vector3(...e.normal); EFFECTS.dust(ps, p, n, 0.3, 0x3a3832); if (e.weapon === 'pipe') EFFECTS.sparks(ps, p, n, 0.5); sound('impact', e.weapon === 'pipe' ? 'metal' : 'concrete', e.point, { power: 0.5 }); break; }
@@ -328,7 +324,7 @@ function onEvents(evs) {
       case 'step': sound('footstep', e.surface === 'water' ? 'water' : e.surface === 'metal' ? 'metal' : 'concrete', null, { count: 1, weight: e.sprint ? 0.85 : e.crouch ? 0.25 : 0.5 }); break;
       case 'groan': sound('groan', e.angry ? (Math.random() < 0.6 ? 'snarl' : 'gurgle') : (Math.random() < 0.7 ? 'moan' : 'gurgle'), e.pos); break;
       case 'zalert': { const z = world.zombies.find(q => q.id === e.zombie); if (z) sound('groan', 'snarl', [z.pos.x, z.pos.y + 1.5, z.pos.z], { pitch: 140, length: 0.9 }); break; }
-      case 'zwindup': { const v = zvis.get(e.zombie); if (v) v.lunge = 1; break; }
+      case 'zwindup': { const v = zvis.get(e.zombie); if (v) ZK.attack(v.anim); break; }
       case 'zmiss': break;
       case 'hurt': {
         hurtT = 0.6; shake = Math.max(shake, 1); bloodOnScreen(e.dmg / 20);
@@ -405,21 +401,48 @@ function present(dt, alpha) {
   kick = Math.max(0, kick - dt * 10); flashT -= dt;
   const hp = vm ? vm.hip.position : [0, 0, 0], hr = vm ? vm.hip.rotationDeg : [0, 0, 0], ap = vm && vm.ads ? vm.ads.position : hp;
   let swX = 0, swY = 0, swZ = 0, swRx = 0, swRy = 0, swRz = 0;
+  // melee: anticipation, a fast strike, follow-through, recovery. A hit freezes the motion briefly (hit-stop).
+  const adv = hitStop > 0 ? 0 : dt; hitStop = Math.max(0, hitStop - dt);
+  const ease = (x, p = 3) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), p), smooth = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  const keyed = (tt, keys) => { // keys: [[time, [x,y,z,rx,ry,rz]], ...], eased between
+    if (tt <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) if (tt <= keys[i][0]) { const [t0, a0] = keys[i - 1], [t1, a1, e] = keys[i], k = (e || smooth)((tt - t0) / (t1 - t0)); return a0.map((v, j) => v + (a1[j] - v) * k); } return keys[keys.length - 1][1]; };
+  let fR = [0, 0, 0, 0, 0, 0], fL = [0, 0, 0, 0, 0, 0];
   if (swingT >= 0) {
-    const M = SURVIVAL_RULES.melee[swingKind], total = M.windup + M.recover; swingT += dt;
-    const k = Math.min(1, swingT / total), wind = Math.min(1, swingT / M.windup);
-    if (swingKind === 'pipe') { const a = swingT < M.windup ? -wind : -1 + (1 - Math.pow(1 - Math.min(1, (swingT - M.windup) / 0.12), 2)) * 2.2 - Math.max(0, k - 0.4) * 2; swX = a * 0.18; swY = Math.abs(a) * 0.05; swRz = a * 0.9; swRy = a * 0.4; }
-    else { const side = Math.floor(world.time * 10) % 2 ? 1 : -1, jab = swingT < M.windup ? -wind * 0.3 : Math.sin(Math.min(1, (swingT - M.windup) / 0.2) * Math.PI); swZ = -jab * 0.16; swX = -side * jab * 0.05; }
+    const M = SURVIVAL_RULES.melee[swingKind], W = M.windup, total = W + M.recover; swingT += adv;
+    if (swingKind === 'pipe') { // over the right shoulder, then a diagonal chop down to the left
+      [swX, swY, swZ, swRx, swRy, swRz] = keyed(swingT, [
+        [0, [0, 0, 0, 0, 0, 0]], [W, [0.06, 0.08, 0.06, 0.65, -0.55, 0.2], x => ease(x, 2)],
+        [W + 0.09, [-0.2, -0.1, -0.1, -0.55, 1.05, -0.3], x => ease(x, 4)], [W + 0.2, [-0.25, -0.15, -0.06, -0.35, 1.25, -0.4], x => ease(x, 2)],
+        [total, [0, 0, 0, 0, 0, 0]]]);
+    } else { // alternate jabs and hooks: pull back, drive through the centre line
+      const S = swingSide > 0 ? 'R' : 'L', sg = swingSide;
+      const k = keyed(swingT, [[0, [0, 0, 0, 0, 0, 0]], [W, [sg * 0.03, -0.02, 0.07, 0.15, sg * 0.2, 0], x => ease(x, 2)],
+        [W + 0.08, [-sg * 0.1, 0.04, -0.24, -0.15, -sg * 0.35, -sg * 0.3], x => ease(x, 4)], [W + 0.16, [-sg * 0.11, 0.03, -0.22, -0.1, -sg * 0.3, -sg * 0.25]], [total, [0, 0, 0, 0, 0, 0]]]);
+      if (S === 'R') fR = k; else fL = k;
+      swRz = -sg * 0.05 * Math.sin(Math.min(1, swingT / (W + 0.1)) * Math.PI); // a little body roll into the punch
+    }
     if (swingT > total) swingT = -1;
   }
-  if (throwT >= 0) { throwT += dt; const k = Math.min(1, throwT / 0.35); swY = -Math.sin(k * Math.PI) * 0.15; swZ = -Math.sin(k * Math.PI) * 0.12; if (throwT > 0.35) throwT = -1; }
+  if (world.player.slot === 'pipe') { swY += 0.07; swX -= 0.02; } // lift the pipe so the gripping hand shows
+  if (AUTOTEST && window.__vmPose) [swX, swY, swZ, swRx, swRy, swRz] = window.__vmPose;
+  let gripRot = [0, 0, 0];
+  if (world.player.slot === 'pipe' || world.player.slot === 'fists') { gripRot = [swRx, swRy, swRz]; swRx = swRy = swRz = 0; }
+  if (VM.weapon) VM.weapon.rotation.set(gripRot[0], gripRot[1], gripRot[2], 'YXZ');
+  fistR.position.set(FIST_REST.R[0] + fR[0], FIST_REST.R[1] + fR[1], FIST_REST.R[2] + fR[2]); fistR.rotation.set(FIST_REST.R[3] + fR[3], FIST_REST.R[4] + fR[4], FIST_REST.R[5] + fR[5]);
+  fistL.position.set(FIST_REST.L[0] + fL[0], FIST_REST.L[1] + fL[1], FIST_REST.L[2] + fL[2]); fistL.rotation.set(FIST_REST.L[3] + fL[3], FIST_REST.L[4] + fL[4], FIST_REST.L[5] + fL[5]);
+  if (throwT >= 0) { // wind back past the ear, then whip forward and down
+    throwT += adv; [swX, swY, swZ, swRx, swRy, swRz] = keyed(throwT, [[0, [0, 0, 0, 0, 0, 0]], [0.16, [0.08, 0.16, 0.12, -0.9, -0.2, 0.3], x => ease(x, 2)], [0.26, [-0.06, -0.12, -0.2, 0.6, 0.2, -0.2], x => ease(x, 4)], [0.5, [0, 0, 0, 0, 0, 0]]]);
+    if (throwT > 0.5) throwT = -1;
+  }
   const reloadDip = g && g.reloadT > 0 && pl.slot === 'pistol' ? Math.sin(Math.min(1, g.reloadT / 0.4) * Math.PI / 2) : 0;
   const healDip = pl.action && pl.action.kind === 'heal' ? 1 : 0;
   VM.root.position.set(lerp(hp[0], ap[0], t) + fx.bobX * 0.6 * s - sway.x * 0.0004 * s - sb * 0.04 + swX, lerp(hp[1], ap[1], t) - reloadDip * 0.12 - healDip * 0.25 - fx.bobY * 0.6 * s + sway.y * 0.0004 * s - sb * 0.04 + fx.dip * 0.06 + swY, lerp(hp[2], ap[2], t) + kick * 0.05 + sb * 0.03 + swZ);
   VM.root.rotation.set(D2R(lerp(hr[0], 0, t)) + kick * 0.15 - reloadDip * 0.6 - sb * 0.25 + sway.y * 0.0012 * s + swRx, D2R(lerp(hr[1], 0, t)) + sb * 0.55 + sway.x * 0.0012 * s + swRy, D2R(lerp(hr[2], 0, t)) + reloadDip * 0.4 + sb * 0.2 + fx.roll * 1.5 + swRz, 'XYZ');
   VM.flash.visible = flashT > 0 && pl.slot === 'pistol';
   VM.root.visible = deadT === 0;
-  if (kickT >= 0) { kickT += dt; const k = Math.min(1, kickT / 0.42), e = Math.sin(k * Math.PI); boot.visible = true; boot.position.set(0.05, -0.75 + e * 0.45, -0.25 - e * 0.35); boot.rotation.x = -0.4 - e * 0.5; if (kickT > 0.42) { kickT = -1; boot.visible = false; } }
+  if (kickT >= 0) { // chamber the knee, stamp out, pull back
+    kickT += adv; const [bx, by, bz, brx] = keyed(kickT, [[0, [0.06, -0.95, -0.1, -0.2]], [0.14, [0.05, -0.55, -0.18, -0.9], x => ease(x, 2)], [0.22, [0.04, -0.42, -0.62, -0.15], x => ease(x, 5)], [0.3, [0.04, -0.44, -0.58, -0.2]], [0.5, [0.06, -0.95, -0.1, -0.2]]]);
+    boot.visible = true; boot.position.set(bx, by, bz); boot.rotation.x = brx; if (kickT > 0.5) { kickT = -1; boot.visible = false; } }
 
   // zombies: interpolate, animate, lunge on attack windup, crawl when legless
   for (const v of zvis.values()) {
@@ -428,16 +451,12 @@ function present(dt, alpha) {
     let dy = z.yaw - v.prevYaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
     v.obj.rotation.y = v.prevYaw + dy * alpha;
     if (z.alive) {
-      const legs = z.crawl ? 'idle' : z.speed > 2 ? 'run' : z.speed > 0.15 ? 'walk' : 'idle';
-      CLIB.setLegs(v.anim, legs); CLIB.setUpper(v.anim, z.state === 'chase' || z.state === 'attack' ? 'aim' : 'free');
-      v.anim.rate = (z.state === 'chase' ? 1.0 : 0.6) * (0.85 + (z.id % 3) * 0.08);
-      v.lunge = Math.max(0, v.lunge - dt * 1.6);
-      v.obj.rotation.x = z.crawl ? 1.45 : Math.sin(Math.min(1, v.lunge) * Math.PI) * 0.35 + (z.state === 'chase' ? 0.12 : 0.05);
-      // crawling: lie face down toward its facing, shifted back so the hips sit where the sim says the body is
-      if (z.crawl) { const back = z.height / 1.8 * 0.99; v.obj.position.x -= Math.sin(v.obj.rotation.y) * back; v.obj.position.z -= Math.cos(v.obj.rotation.y) * back; v.obj.position.y = z.pos.y + 0.12; }
+      if (z.crawl && !v.anim.crawl) ZK.setCrawl(v.anim);
+      const legs = z.speed > 2 ? 'run' : z.speed > 0.15 ? 'walk' : 'idle';
+      ZK.setMove(v.anim, legs, z.state === 'chase' || z.state === 'attack' ? 'reach' : 'free');
+      v.anim.rate = (z.state === 'chase' ? 1.0 : 0.75) * (0.88 + (z.id % 3) * 0.07) * (z.crawl ? 0.8 : 1);
     }
-    if (!v.still) CLIB.animate(v.obj, v.anim, dt * v.anim.rate);
-    else if (z.crawl) { const back = z.height / 1.8 * 0.99; v.obj.position.x -= Math.sin(v.obj.rotation.y) * back; v.obj.position.z -= Math.cos(v.obj.rotation.y) * back; v.obj.position.y = z.pos.y + 0.12; }
+    ZK.animate(v.obj, v.anim, dt);
   }
   // pickups glint slowly; nearest gets a prompt
   let near = null, nd = 1.7;
@@ -500,6 +519,7 @@ if (AUTOTEST) {
     give() { const p = world.player; p.pipe = { durability: 14 }; p.pistol = p.pistol || makeGunState(world.pistolStats); p.reserve = 12; p.bricks = 3; p.bottles = 3; p.bandages = 2; },
     aimAt(i, h = 1.25) { const z = world.zombies[i], b = world.player.body, ex = b.pos.x, ey = b.pos.y + b.height - 0.12, ez = b.pos.z, dx = z.pos.x - ex, dy = z.pos.y + h * z.height / 1.8 - ey, dz = z.pos.z - ez; lookYP.yaw = Math.atan2(-dx, -dz); lookYP.pitch = Math.atan2(dy, Math.hypot(dx, dz)); },
     god() { world.player.hp = world.player.maxHp = 1e6; },
+    slot(n) { world.player.slot = n; setHeld(); },
     light(v) { lightOn = v; },
   };
 }

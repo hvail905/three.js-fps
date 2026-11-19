@@ -311,10 +311,11 @@ export function buildSewer(def, { visuals = true } = {}) {
         }
       }
     }
-    const JM = { paper: new THREE.MeshStandardMaterial({ color: 0x9c9682, roughness: 0.95, side: THREE.DoubleSide }), card: new THREE.MeshStandardMaterial({ color: 0x5e4a32, roughness: 1, flatShading: true }),
+    const tx = n => { const t = PIXEL_TEXTURES[n](); return { map: t.map, normalMap: t.normalMap }; };
+    const JM = { paper: new THREE.MeshStandardMaterial({ ...tx('paper'), roughness: 0.95, side: THREE.DoubleSide }), card: new THREE.MeshStandardMaterial({ ...tx('cardboard'), roughness: 1 }),
       can: new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.5, metalness: 0.5, flatShading: true }), wood: new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9, flatShading: true }),
       rag: new THREE.MeshStandardMaterial({ color: 0x3a3428, roughness: 1, flatShading: true }), box: dressMat, conduit: dressMat };
-    for (const [k, gs] of Object.entries(J)) if (gs.length) { const m = new THREE.Mesh(mergeGeometries(gs.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), JM[k]); m.receiveShadow = true; m.castShadow = k !== 'paper'; root.add(m); }
+    for (const [k, gs] of Object.entries(J)) if (gs.length) { const keepUV = k === 'paper' || k === 'card'; const m = new THREE.Mesh(mergeGeometries(gs.map(g => { if (!keepUV) g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), JM[k]); m.receiveShadow = true; m.castShadow = k !== 'paper'; root.add(m); }
   }
 
   // ---------- bars across the mouths of the side tunnels ----------

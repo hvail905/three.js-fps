@@ -145,6 +145,23 @@ export const PIXEL_TEXTURES = {
     R(g, 0, 0, 5, h, '#3a2c1c'); R(g, w - 5, 0, 5, h, '#3a2c1c'); R(g, 0, 0, w, 5, '#3a2c1c'); R(g, 0, h - 5, w, 5, '#3a2c1c');
     cloud(g, rnd, w, h, 4, '#140e08', 0, 0.45);
   } }),
+  // stained mattress / gown cloth: quilting lines, old brown blooms
+  cloth: () => build('cloth', { w: 64, h: 64, normal: 1.5, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#8a8a78'); R(hg, 0, 0, w, h, shade(170)); cloud(g, rnd, w, h, 4, '#2a2618', 0.05, 0.55);
+    for (let y = 0; y < h; y += 16) { R(g, 0, y, w, 1, 'rgba(40,36,26,0.6)'); R(hg, 0, y, w, 1, shade(90)); }
+    stain(g, rnd, w, h, 4, 'rgba(90,60,30,0.35)', 4, 12); stain(g, rnd, w, h, 2, 'rgba(80,14,10,0.45)', 2, 6);
+  } }),
+  leather: () => build('leather', { w: 64, h: 64, normal: 2, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#3a2618'); cloud(g, rnd, w, h, 6, '#120a06', 0, 0.6); cloud(g, rnd, w, h, 12, '#6a4a30', 0, 0.3); cloud(hg, rnd, w, h, 16, '#000000', 0, 0.5);
+    for (let i = 0; i < 6; i++) R(g, rnd() * w, rnd() * h, 6 + rnd() * 10, 1, 'rgba(140,110,80,0.35)'); // scuffs
+  } }),
+  cardboard: () => build('cardboard', { w: 64, h: 64, normal: 1, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#7a603e'); cloud(g, rnd, w, h, 5, '#2a1e10', 0.05, 0.5); R(g, 0, h / 2 - 3, w, 6, 'rgba(160,140,100,0.5)'); // tape
+    R(g, 8, 10, 22, 8, 'rgba(20,16,10,0.6)'); stain(g, rnd, w, h, 2, 'rgba(30,24,14,0.4)', 6, 14);
+  } }),
+  paper: () => build('paper', { w: 32, h: 32, normal: 0.5, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#a8a28c'); for (let y = 6; y < h - 4; y += 3) R(g, 4, y, 8 + rnd() * 18, 1, 'rgba(40,38,34,0.55)'); cloud(g, rnd, w, h, 4, '#5a4a30', 0, 0.45);
+  } }),
 };
 
 // Stenciled paint: text or arrows on a transparent background, low-res and worn.

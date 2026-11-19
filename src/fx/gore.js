@@ -125,8 +125,9 @@ export function createGore(scene, { floorAt, max = { decals: 500, drips: 300, gi
   function sever(obj, jointName, dir) {
     const j = obj.userData.rig.joints[jointName]; if (!j || !j.visible) return;
     obj.updateMatrixWorld(true);
-    const gib = j.clone(true); gib.traverse(o => { if (o.isMesh) { o.castShadow = true; o.userData.zone = null; } });
-    j.matrixWorld.decompose(gib.position, gib.quaternion, gib.scale);
+    let gib;
+    if (obj.userData.severPart) { gib = obj.userData.severPart(jointName); if (!gib) return; } // skinned bodies bake the posed segment
+    else { gib = j.clone(true); gib.traverse(o => { if (o.isMesh) { o.castShadow = true; o.userData.zone = null; } }); j.matrixWorld.decompose(gib.position, gib.quaternion, gib.scale); }
     scene.add(gib);
     const v = new THREE.Vector3(dir.x * 3.5 + (Math.random() - 0.5) * 2, 2 + Math.random() * 2, dir.z * 3.5 + (Math.random() - 0.5) * 2);
     gibs.push({ o: gib, v, w: new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14), rest: false, t: 0, bleed: 3, next: 0 });
