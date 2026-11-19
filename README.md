@@ -8,7 +8,7 @@ The project is a set of **labs** (tuning tools) built on one shared codebase. Th
 
 ```bash
 npm install
-npm run dev      # opens the lab hub at http://localhost:5173
+npm run dev      # opens the hub at http://localhost:5173 (game + labs)
 npm test         # simulation and data tests
 npm run build    # production build into dist/
 ```
@@ -19,14 +19,20 @@ Requires Node 20 or newer.
 
 | Folder | What lives there |
 | --- | --- |
-| `src/sim/` | Fixed-tick simulation on plain data: `movement.js` (60 Hz player controller), `gun.js` (fire, recoil, spread), `ai.js` (30 Hz enemy brains). No rendering, so the same code can run on a co-op host. |
-| `src/world/` | `terrain.js` (deterministic terrain generator), `ground-textures.js` (procedural ground textures). |
+| `src/sim/` | Fixed-tick simulation on plain data: `world.js` (the game rules: players, weapons, projectiles, damage, round state; returns events each tick), `movement.js` (60 Hz player controller), `gun.js` (fire, recoil, spread), `ai.js` (30 Hz enemy brains). No rendering, so the same code can run on a co-op host. |
+| `src/world/` | `level.js` (builds a level and its collider from a blockout layout), `terrain.js` (deterministic terrain generator), `ground-textures.js`. |
+| `src/render/` | `look.js` (sky, sun, fog, bloom, grade, lens: the Effects lab pipeline), `camera-feel.js` (bob, tilt, landing dip, FOV: the Movement lab feel), `viewmodel.js` (first-person weapon), `merge.js` (static geometry merging). |
 | `src/assets/` | Procedural model libraries: props, vehicles, facades, weapons, characters. Each exports `createXLibrary(THREE)` returning `{ props, defaults, build, dispose }`. |
 | `src/fx/` | Particles. |
 | `src/audio/` | Procedural sound effects and sample layers. |
 | `data/` | Tuned settings as versioned JSON. See `data/README.md`. |
+| `game/` | The playable slice: City block, clear the street. Input and presentation only; rules come from `src/sim/world.js`. |
 | `labs/` | One page per lab. Each imports from `src/` and reads or writes `data/`. |
 | `tests/` | `node --test` suites. |
+
+## How the game is wired
+
+Each fixed tick (60 Hz) the game samples input, calls `stepWorld(world, inputs)`, and reacts to the events it returns (`shot`, `impact`, `hit`, `killed`, `reloadStart`, `cleared`, ...) with effects, sound and HUD. Settings load from `data/`, then any values left in a lab's saved state on the same site override them, so tuning in a lab shows up in the game on the next load.
 
 ## Labs
 

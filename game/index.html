@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPS: City block</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --acc:#f2c14e; --text:#eef0f2; --dim:#a8aeb5; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#000; color:var(--text); font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; user-select:none; }
+  #root { position:fixed; inset:0; }
+  canvas { display:block; width:100%; height:100%; }
+  .hud { position:absolute; pointer-events:none; text-shadow:0 1px 2px rgba(0,0,0,.8); }
+  #xh { left:50%; top:50%; width:0; height:0; }
+  #xh i { position:absolute; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.55); }
+  #hm { left:50%; top:50%; width:0; height:0; opacity:0; }
+  #hm i { position:absolute; width:2px; height:10px; background:#fff; left:-1px; top:-5px; }
+  #hm.kill i { background:var(--bad); }
+  #scope { position:absolute; inset:0; display:none; pointer-events:none; background:radial-gradient(circle at center, transparent 0, transparent 34vmin, #000 34.3vmin); }
+  #scope::before, #scope::after { content:""; position:absolute; background:#000; }
+  #scope::before { left:50%; top:0; bottom:0; width:2px; transform:translateX(-1px); } #scope::after { top:50%; left:0; right:0; height:2px; transform:translateY(-1px); }
+  #ammo { right:28px; bottom:22px; text-align:right; }
+  #ammo b { font:700 40px/1 ui-monospace, Menlo, monospace; } #ammo small { color:var(--dim); font:600 18px ui-monospace, Menlo, monospace; }
+  #ammo .wname { color:var(--dim); font-size:12px; letter-spacing:.08em; text-transform:uppercase; margin-top:4px; }
+  #ammo .reload { width:140px; height:4px; background:rgba(255,255,255,.2); margin:6px 0 0 auto; display:none; } #ammo .reload i { display:block; height:4px; background:var(--acc); width:0; }
+  #slots { right:28px; bottom:112px; text-align:right; font:600 12px ui-monospace, Menlo, monospace; color:var(--dim); }
+  #slots span { margin-left:10px; } #slots span.on { color:var(--acc); }
+  #health { left:28px; bottom:26px; width:220px; }
+  #health .bar { height:6px; background:rgba(255,255,255,.2); } #health .bar i { display:block; height:6px; background:#7ddc7a; width:100%; }
+  #health span { font:700 22px ui-monospace, Menlo, monospace; }
+  #obj { left:50%; top:16px; transform:translateX(-50%); text-align:center; font:600 13px ui-monospace, Menlo, monospace; letter-spacing:.06em; }
+  #obj b { color:var(--acc); }
+  #feed { right:24px; top:16px; text-align:right; font:600 13px ui-monospace, Menlo, monospace; }
+  #feed div { margin-bottom:3px; animation:fade 3.5s forwards; } @keyframes fade { 0%,70% { opacity:1 } 100% { opacity:0 } }
+  #banner { left:50%; top:34%; transform:translate(-50%,-50%); text-align:center; display:none; }
+  #banner h1 { margin:0; font:800 46px/1.1 system-ui, sans-serif; letter-spacing:.06em; color:var(--acc); }
+  #banner p { margin:8px 0 0; font:600 15px ui-monospace, Menlo, monospace; }
+  #menu { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(8,10,12,.62); z-index:10; }
+  #menu.hidden { display:none; }
+  #menu .box { width:min(460px, 92vw); background:#1b1e22; border:1px solid #30353c; border-radius:12px; padding:20px 22px; }
+  #menu h2 { margin:0 0 2px; color:var(--acc); letter-spacing:.14em; font-size:14px; text-transform:uppercase; }
+  #menu p { color:var(--dim); margin:4px 0 14px; }
+  #menu label { display:block; color:var(--dim); font-size:12px; margin:10px 0 4px; }
+  #menu select, #menu button { width:100%; background:#2a2e34; color:var(--text); border:1px solid #3a3f46; border-radius:7px; padding:9px; font:inherit; cursor:pointer; }
+  #menu button.go { background:var(--acc); color:#111; font-weight:700; margin-top:14px; }
+  #menu .keys { color:var(--dim); font-size:12.5px; margin-top:14px; line-height:1.6; }
+  #menu .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  #menu a { color:var(--dim); }
+  #dbg { left:10px; top:10px; font:11px ui-monospace, Menlo, monospace; color:var(--dim); white-space:pre; display:none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="hud" id="xh"><i></i><i></i><i></i><i></i></div>
+  <div class="hud" id="hm"><i style="transform:rotate(45deg) translateY(-11px)"></i><i style="transform:rotate(135deg) translateY(-11px)"></i><i style="transform:rotate(225deg) translateY(-11px)"></i><i style="transform:rotate(315deg) translateY(-11px)"></i></div>
+  <div id="scope"></div>
+  <div class="hud" id="obj"></div>
+  <div class="hud" id="feed"></div>
+  <div class="hud" id="slots"></div>
+  <div class="hud" id="ammo"><b></b> <small></small><div class="wname"></div><div class="reload"><i></i></div></div>
+  <div class="hud" id="health"><span>100</span><div class="bar"><i></i></div></div>
+  <div class="hud" id="banner"><h1>BLOCK CLEARED</h1><p></p></div>
+  <div class="hud" id="dbg"></div>
+  <div id="menu">
+    <div class="box">
+      <h2>City block</h2>
+      <p>Clear every hostile from the street. Targets stand still for now; enemy AI comes next.</p>
+      <label for="lookSel">Look</label><select id="lookSel"></select>
+      <button class="go" id="bPlay">Click to play</button>
+      <div class="row"><button id="bRestart">Restart</button><button id="bDebug">Show stats</button></div>
+      <div class="keys">WASD move · Shift sprint · Space jump · C crouch / slide<br>Left mouse fire · Right mouse aim · R reload · 1-6 or wheel switch weapon · Esc pause · Enter restart</div>
+      <p style="margin:12px 0 0"><a href="../">Back to the labs</a></p>
+    </div>
+  </div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

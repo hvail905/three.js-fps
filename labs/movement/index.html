@@ -90,12 +90,12 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from '../../src/sim/movement.js';
 import { buildCourse } from './course.js';
+import { createCameraFeel, VIEW_DEFAULTS } from '../../src/render/camera-feel.js';
 
 const $ = id => document.getElementById(id);
 
 // ---------- parameters ----------
 // P = simulation (gameplay) parameters. V = presentation-only parameters.
-const VIEW_DEFAULTS = { fov: 75, sprintFov: 12, slideFov: 6, bobAmount: 0.025, bobRate: 0.6, strafeTilt: 1.5, landDip: 1.0, sensitivity: 2.2, invertY: false, crouchToggle: false, weaponSway: 0.5 };
 const PRESETS = {
   standard: {},
   classic: { sprintSpeed: 7.0, crouchSpeed: 2.2, groundAccel: 12, airAccel: 2.0, friction: 7, gravity: 20, jumpHeight: 1.1, slideBoost: 1.25, slideMaxSpeed: 10, slideFriction: 1.2, sprintFov: 8, bobAmount: 0.035, bobRate: 0.9, weaponSway: 1.0 },
@@ -245,43 +245,17 @@ wsel.value = weaponId; setWeapon(weaponId);
 wsel.onchange = () => { setWeapon(wsel.value); persist(); };
 
 // ---------- presentation state (render-only) ----------
-const fx = { bobPhase: 0, bobAmp: 0, sprintBlend: 0, slideBlend: 0, dip: 0, dipVel: 0, roll: 0, eye: 1.7 };
+// camera feel is shared with the game: src/render/camera-feel.js
+const feel = createCameraFeel(), fx = feel.fx;
 const swayIn = { x: 0, y: 0 }, sway = { x: 0, y: 0 };
-const camPos = new THREE.Vector3(), lastCamPos = new THREE.Vector3();
+const camPos = new THREE.Vector3();
 const D2R = THREE.MathUtils.degToRad, lerp = THREE.MathUtils.lerp;
 
 function present(dt, alpha) {
   camPos.lerpVectors(prev.pos, player.pos, alpha);
   const height = lerp(prev.height, player.height, alpha);
-  const hSpeed = Math.hypot(player.vel.x, player.vel.z);
-  const moved = Math.hypot(camPos.x - lastCamPos.x, camPos.z - lastCamPos.z);
-  lastCamPos.copy(camPos);
-
-  // head bob: phase advances with distance walked, amplitude follows speed while grounded
-  const grounded = player.onGround && !player.sliding;
-  fx.bobAmp = lerp(fx.bobAmp, grounded ? Math.min(1, hSpeed / Math.max(0.1, P.walkSpeed)) : 0, Math.min(1, dt * 8));
-  if (moved < 2) fx.bobPhase += moved * Math.PI * V.bobRate;
-  const bobY = Math.abs(Math.sin(fx.bobPhase)) * V.bobAmount * fx.bobAmp;
-  const bobX = Math.cos(fx.bobPhase) * V.bobAmount * 0.5 * fx.bobAmp;
-
-  // landing dip (spring)
-  if (player.events.landed > 0) { fx.dipVel -= Math.min(player.events.landed * 0.12, 1.2) * V.landDip; player.events.landed = 0; }
-  player.events.jumped = false;
-  for (let n = Math.ceil(dt / 0.005), h = dt / n, i = 0; i < n; i++) { fx.dipVel += (-fx.dip * 180 - fx.dipVel * 18) * h; fx.dip += fx.dipVel * h; } // substepped so long frames stay stable
-
-  fx.sprintBlend = lerp(fx.sprintBlend, player.sprinting && hSpeed > P.walkSpeed * 0.9 ? 1 : 0, Math.min(1, dt * 6));
-  fx.slideBlend = lerp(fx.slideBlend, player.sliding ? 1 : 0, Math.min(1, dt * 10));
-
-  // strafe tilt from lateral velocity
-  const rx = Math.cos(look.yaw), rz = -Math.sin(look.yaw);
-  const lateral = (player.vel.x * rx + player.vel.z * rz) / Math.max(1, P.walkSpeed);
-  fx.roll = lerp(fx.roll, -lateral * D2R(V.strafeTilt) - fx.slideBlend * D2R(4), Math.min(1, dt * 8));
-
-  fx.eye = height - 0.12;
-  camera.position.set(camPos.x + bobX * Math.cos(look.yaw), camPos.y + fx.eye + bobY - V.bobAmount * 0.5 * fx.bobAmp + fx.dip * 0.1, camPos.z - bobX * Math.sin(look.yaw));
-  camera.rotation.set(look.pitch, look.yaw, fx.roll, 'YXZ');
-  const fov = V.fov + V.sprintFov * fx.sprintBlend + V.slideFov * fx.slideBlend;
-  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  feel.update(camera, dt, { pos: camPos, height, player, yaw: look.yaw, pitch: look.pitch, V, P });
+  const bobX = fx.bobX, bobY = fx.bobY;
 
   // weapon: hip pose + bob + mouse sway + sprint pose + landing dip
   if (weapon) {
