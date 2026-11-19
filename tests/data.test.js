@@ -50,3 +50,17 @@ test('AI profile matches the AI sim defaults', async () => {
   assert.equal(j.kind, 'aiProfile');
   assert.deepEqual(j.params, DEFAULT_AI);
 });
+
+test('sewer levels: rectangular map, everything placed on open cells, triggers inside the map', () => {
+  for (const [f, L] of files('../data/sewer/')) {
+    assert.equal(L.kind, 'sewerLevel', f);
+    const W = L.map[0].length, open = ([c, r]) => L.map[r] && L.map[r][c] && L.map[r][c] !== '#';
+    assert.ok(L.map.every(row => row.length === W), `${f}: every row is ${W} wide`);
+    for (const ch of new Set(L.map.join(''))) if (ch !== '#') assert.ok(L.heights[ch] || L.heights['.'], `${f}: heights for "${ch}"`);
+    assert.ok(open(L.player.cell), `${f}: player on an open cell`);
+    for (const z of L.zombies) assert.ok(open(z.cell), `${f}: zombie at ${z.cell}`);
+    for (const p of L.pickups) assert.ok(open(p.cell), `${f}: ${p.kind} at ${p.cell}`);
+    for (const t of L.triggers) { const [c0, r0, c1, r1] = t.cells; assert.ok(c0 <= c1 && r0 <= r1 && c1 < W && r1 < L.map.length, `${f}: trigger ${t.id}`); }
+    assert.ok(L.triggers.some(t => t.kind === 'exit'), `${f}: has an exit`);
+  }
+});

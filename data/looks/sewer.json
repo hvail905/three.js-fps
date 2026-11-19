@@ -1,0 +1,31 @@
+{
+  "kind": "lookSettings",
+  "version": 1,
+  "name": "Sewer",
+  "look": {
+    "autoAtmosphere": true,
+    "exposureTrim": -0.25,
+    "bloomTrim": 0.45,
+    "fogTrim": 1.4,
+    "sunElevation": -20,
+    "sunAzimuth": 139,
+    "exposure": 1,
+    "fogDensity": 0.003,
+    "bloomStrength": 0.35,
+    "bloomRadius": 0.5,
+    "bloomThreshold": 0.85,
+    "contrast": 1.14,
+    "saturation": 0.78,
+    "temperature": -0.06,
+    "tint": 0.04,
+    "vignette": 0.5,
+    "grain": 0.06,
+    "chromatic": 0.0012,
+    "particleScale": 1,
+    "lens": "cinematic",
+    "lensAmount": 0.35,
+    "dof": false,
+    "focus": 14,
+    "aperture": 0.6
+  }
+}

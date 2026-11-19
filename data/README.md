@@ -8,6 +8,7 @@ Every tuned setting is a JSON file with a `kind` and a `version`, so the game an
 | `looks/` | `lookSettings` | Effects lab ("Copy settings"). The Effects lab lists every file here as a "(yours)" preset; the game's pause menu lists them too. |
 | `weapons/` | `weaponStats` | Gun lab. `stats` feeds `src/sim/gun.js`. Must match `PRESETS` in that file (tested). |
 | `ai/` | `aiProfile` | AI lab. `params` feeds `src/sim/ai.js` (sight, hearing, accuracy, damage, cover range). Must match `DEFAULT_AI` (tested). The game also picks up the AI lab's saved tuning. |
+| `sewer/` | `sewerLevel` | Hand-written ASCII grid (2 m cells: `#` rock, `.` tunnel, `~` water channel, `R` room, `P` pump hall, `v` crawl vent, `X` exit) with heights per cell type, plus zombies, pickups, lights, triggers and the intercom script. |
 | `levels/` | `level` | Blockout lab ("Save .json"; "Open level file" loads these). The game plays `city-block.json`. |
 
 Planned: `terrain/` (terrain lab exports), `audio/` (sound presets).
