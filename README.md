@@ -19,7 +19,7 @@ Requires Node 20 or newer.
 
 | Folder | What lives there |
 | --- | --- |
-| `src/sim/` | Fixed-tick simulation on plain data: `world.js` (the game rules: players, weapons, projectiles, damage, round state; returns events each tick), `movement.js` (60 Hz player controller), `gun.js` (fire, recoil, spread), `ai.js` (30 Hz enemy brains). No rendering, so the same code can run on a co-op host. |
+| `src/sim/` | Fixed-tick simulation on plain data: `world.js` (the game rules: players, weapons, projectiles, damage, enemy AI bridge, round state; returns events each tick), `movement.js` (60 Hz player controller), `gun.js` (fire, recoil, spread), `ai.js` (30 Hz enemy brains: sight, hearing, A* on a nav grid, cover, squad callouts; runs on a real level through `enableAI` in world.js). No rendering, so the same code can run on a co-op host. |
 | `src/world/` | `level.js` (builds a level and its collider from a blockout layout), `terrain.js` (deterministic terrain generator), `ground-textures.js`. |
 | `src/render/` | `look.js` (sky, sun, fog, bloom, grade, lens: the Effects lab pipeline), `camera-feel.js` (bob, tilt, landing dip, FOV: the Movement lab feel), `viewmodel.js` (first-person weapon), `merge.js` (static geometry merging). |
 | `src/assets/` | Procedural model libraries: props, vehicles, facades, weapons, characters. Each exports `createXLibrary(THREE)` returning `{ props, defaults, build, dispose }`. |

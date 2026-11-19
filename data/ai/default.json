@@ -1,0 +1,22 @@
+{
+  "kind": "aiProfile",
+  "version": 1,
+  "name": "Default hostile",
+  "params": {
+    "viewDist": 26,
+    "fov": 110,
+    "reaction": 1,
+    "hearing": 1,
+    "walkSpeed": 1.8,
+    "runSpeed": 4.2,
+    "accuracy": 0.45,
+    "damage": 9,
+    "fireInterval": 0.18,
+    "burst": 4,
+    "preferredRange": 12,
+    "coverSearch": 14,
+    "callout": 20,
+    "searchTime": 10,
+    "aggression": 0.5
+  }
+}

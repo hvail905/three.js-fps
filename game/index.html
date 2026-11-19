@@ -47,6 +47,9 @@
   #menu .keys { color:var(--dim); font-size:12.5px; margin-top:14px; line-height:1.6; }
   #menu .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
   #menu a { color:var(--dim); }
+  #hurt { position:absolute; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, transparent 45%, rgba(160,0,0,.55) 100%); }
+  #dmgdir { left:50%; top:50%; width:220px; height:220px; opacity:0; }
+  #dmgdir::before { content:""; position:absolute; left:50%; top:0; width:0; height:0; transform:translateX(-50%); border-left:16px solid transparent; border-right:16px solid transparent; border-bottom:22px solid rgba(239,68,68,.9); }
   #dbg { left:10px; top:10px; font:11px ui-monospace, Menlo, monospace; color:var(--dim); white-space:pre; display:none; }
 </style>
 </head>
@@ -55,6 +58,8 @@
   <div class="hud" id="xh"><i></i><i></i><i></i><i></i></div>
   <div class="hud" id="hm"><i style="transform:rotate(45deg) translateY(-11px)"></i><i style="transform:rotate(135deg) translateY(-11px)"></i><i style="transform:rotate(225deg) translateY(-11px)"></i><i style="transform:rotate(315deg) translateY(-11px)"></i></div>
   <div id="scope"></div>
+  <div id="hurt"></div>
+  <div class="hud" id="dmgdir"></div>
   <div class="hud" id="obj"></div>
   <div class="hud" id="feed"></div>
   <div class="hud" id="slots"></div>
@@ -65,7 +70,7 @@
   <div id="menu">
     <div class="box">
       <h2>City block</h2>
-      <p>Clear every hostile from the street. Targets stand still for now; enemy AI comes next.</p>
+      <p>Clear every hostile from the street. They patrol, hear gunfire, take cover and shoot back. Health regenerates after a few seconds out of fire.</p>
       <label for="lookSel">Look</label><select id="lookSel"></select>
       <button class="go" id="bPlay">Click to play</button>
       <div class="row"><button id="bRestart">Restart</button><button id="bDebug">Show stats</button></div>

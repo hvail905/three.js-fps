@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import layout from '../data/levels/city-block.json';
 import movementData from '../data/movement/standard.json';
+import aiData from '../data/ai/default.json';
 import { createPropLibrary } from '../src/assets/props.js';
 import { createVehicleLibrary } from '../src/assets/vehicles.js';
 import { createFacadeLibrary } from '../src/assets/facades.js';
@@ -17,7 +18,7 @@ import { ParticleSystem, EFFECTS } from '../src/fx/particles.js';
 import { SOUNDS, SPACES, playSound, impulse } from '../src/audio/sfx.js';
 import { DEFAULT_PARAMS } from '../src/sim/movement.js';
 import { currentSpread } from '../src/sim/gun.js';
-import { makeWorld, addPlayer, addActor, stepWorld, makeInput, TICK, currentWeapon, eyePosition } from '../src/sim/world.js';
+import { makeWorld, addPlayer, addActor, stepWorld, makeInput, TICK, currentWeapon, eyePosition, enableAI } from '../src/sim/world.js';
 
 const AUTOTEST = location.hash === '#autotest';
 const $ = id => document.getElementById(id);
@@ -32,6 +33,7 @@ const V = { ...VIEW_DEFAULTS, ...movementData.view, ...(mv && mv.view || {}) };
 const WEAPONS = {}, LABELS = {};
 for (const f of Object.values(import.meta.glob('../data/weapons/*.json', { eager: true, import: 'default' }))) { WEAPONS[f.id] = { ...f.stats }; LABELS[f.id] = f.label; }
 const gl = readLS('gunlab.v1'); if (gl) for (const id in WEAPONS) Object.assign(WEAPONS[id], gl[id] || {});
+const AI_PARAMS = { ...aiData.params, ...(readLS('ailab.params') || {}) };
 const LOADOUT = ['rifle', 'smg', 'shotgun', 'pistol', 'sniper', 'revolver'].filter(id => WEAPONS[id]);
 const LOOKS = {};
 for (const [path, f] of Object.entries(import.meta.glob('../data/looks/*.json', { eager: true, import: 'default' }))) LOOKS[path.split('/').pop().replace('.json', '')] = f;
@@ -116,6 +118,12 @@ function updateListener() {
 }
 
 // ---------------------------------------------------------------- round state
+// nav bounds from the level's own records, padded
+const NAV_BOUNDS = (() => {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const r of layout.objects) if (r.type === 'marker' || r.type === 'prim') { x0 = Math.min(x0, r.pos[0]); x1 = Math.max(x1, r.pos[0]); z0 = Math.min(z0, r.pos[2]); z1 = Math.max(z1, r.pos[2]); }
+  return { x0: x0 - 4, z0: z0 - 4, width: x1 - x0 + 8, depth: z1 - z0 + 8 };
+})();
 const HOSTILES = ['soldier', 'thug', 'heavy', 'soldier', 'thug', 'soldier', 'heavy'];
 let world = null, me = null, roundStart = 0, ended = false;
 const actorVis = new Map();
@@ -134,11 +142,13 @@ function startRound() {
     const a = addActor(world, { pos: m.pos, yaw: D2R(m.rotY) + Math.PI, height: params.height || 1.8 });
     const obj = CLIB.build({ prop: id, params });
     obj.position.set(...m.pos); obj.rotation.y = a.yaw; scene.add(obj);
-    actorVis.set(a.id, { obj, anim: { legs: 'idle', upper: 'aim', t: i * 0.7, rate: 0.9 + (i % 3) * 0.08 } });
+    actorVis.set(a.id, { obj, actor: a, prev: a.pos.clone(), prevYaw: a.yaw, anim: { legs: 'idle', upper: 'carry', t: i * 0.7, rate: 0.9 + (i % 3) * 0.08 } });
   });
+  // enemies think on a nav grid covering the playable street; patrol markers give them routes
+  enableAI(world, { bounds: NAV_BOUNDS, patrol: level.markers.filter(m => m.kind === 'patrolPoint').map(m => [m.pos[0], m.pos[2]]), params: AI_PARAMS, seed: 7 });
   prevPos.copy(me.body.pos); prevHeight = me.body.height; feel.reset();
   setWeaponVisual(); roundStart = 0; ended = false;
-  $('banner').style.display = 'none'; $('feed').innerHTML = '';
+  $('banner').style.display = 'none'; $('feed').innerHTML = ''; deadT = 0; hurtT = 0; VM.root.visible = true;
 }
 
 // ---------------------------------------------------------------- input
@@ -192,8 +202,9 @@ function sampleInput() {
 // ---------------------------------------------------------------- effects: tracers, decals, muzzle light
 const tracers = [], decals = [];
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.9, depthWrite: false });
-function addTracer(a, b, life = 0.07) {
+function addTracer(a, b, life = 0.07, color = null) {
   const g = new THREE.BufferGeometry().setFromPoints([a, b]), l = new THREE.Line(g, tracerMat.clone());
+  if (color !== null) l.material.color.set(color);
   scene.add(l); tracers.push({ l, t: life, life });
 }
 const decalMat = new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -4, depthWrite: false });
@@ -204,7 +215,11 @@ function addDecal(point, normal) {
   decals.push(d); if (decals.length > 300) scene.remove(decals.shift());
 }
 const muzzleLight = new THREE.PointLight(0xffc070, 0, 9, 1.8); scene.add(muzzleLight);
-let flashT = 0, kick = 0, hitT = 0;
+let flashT = 0, kick = 0, hitT = 0, hurtT = 0, hurtDir = 0, hurtDirT = 0, deadT = 0;
+// a few reusable lights for enemy muzzle flashes (fixed count, so shaders never recompile)
+const flashLights = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xffb060, 0, 10, 1.8); scene.add(l); return l; });
+let flashIdx = 0;
+function flashAt(p) { const l = flashLights[flashIdx++ % flashLights.length]; l.position.copy(p); l.intensity = 10; }
 const projTrail = new Map();
 
 // ---------------------------------------------------------------- events from the simulation
@@ -258,11 +273,36 @@ function onEvents(events) {
         if (e.done) { const g = new THREE.BufferGeometry().setFromPoints(pts), l = new THREE.Line(g, tracerMat.clone()); scene.add(l); tracers.push({ l, t: 0.25, life: 0.25 }); projTrail.delete(e.id); }
         break;
       }
+      case 'enemyShot': {
+        const from = new THREE.Vector3(...e.from), to = new THREE.Vector3(...e.to);
+        EFFECTS.muzzle(ps, from, to.clone().sub(from).normalize(), 0.45);
+        flashAt(from);
+        if (Math.random() < 0.7) addTracer(from, to, 0.08, 0xff9a6a);
+        if (!e.hit && e.normal) { const surf = SURFACES[e.surface] || 'concrete'; EFFECTS.dust(ps, to, new THREE.Vector3(...e.normal), 0.5, 0xb8b0a0); addDecal(e.to, e.normal); if (to.distanceTo(camera.position) < 12) sound('impact', IMPACT[surf] || 'concrete', e.to, { power: 0.5 }); }
+        else if (!e.hit && to.distanceTo(camera.position) < 25) sound('impact', 'concrete', e.to, { power: 0.25 }); // near miss crack
+        sound('gunshot', 'rifle', e.from);
+        break;
+      }
+      case 'playerHurt': {
+        hurtT = 0.45;
+        if (e.from) { const dx = e.from[0] - me.body.pos.x, dz = e.from[2] - me.body.pos.z; hurtDir = Math.atan2(-dx, -dz) - lookYP.yaw; hurtDirT = 1.2; }
+        sound('impact', 'body', null, { power: 0.45 });
+        break;
+      }
+      case 'playerDied': {
+        ended = true; deadT = 0.001; VM.root.visible = false; trigger = adsHeld = false;
+        const s = world.stats, acc = s.bullets ? Math.round(100 * s.hits / s.bullets) : 0;
+        $('banner').querySelector('h1').textContent = 'YOU DIED';
+        $('banner').style.display = 'block';
+        $('banner').querySelector('p').textContent = `${s.kills} of ${world.actors.length} down · ${acc}% accuracy · Enter to restart`;
+        break;
+      }
       case 'cleared': {
         ended = true;
-        const t = world.time - (roundStart || 0), s = world.stats, shotsP = s.shots ? Math.round(100 * s.hits / Math.max(1, s.shots)) : 0;
+        const t = world.time - (roundStart || 0), s = world.stats, acc = s.bullets ? Math.round(100 * s.hits / s.bullets) : 0;
+        $('banner').querySelector('h1').textContent = 'BLOCK CLEARED';
         $('banner').style.display = 'block';
-        $('banner').querySelector('p').textContent = `${fmtTime(t)} · ${s.kills} down · ${s.heads} headshots · ${shotsP}% hits per trigger pull · Enter to restart`;
+        $('banner').querySelector('p').textContent = `${fmtTime(t)} · ${s.kills} down · ${s.heads} headshots · ${acc}% accuracy · ${Math.round(s.damageTaken)} damage taken · Enter to restart`;
         sound('ui', 'confirm');
         break;
       }
@@ -294,6 +334,7 @@ renderer.setAnimationLoop(() => {
     acc += dt; let n = 0;
     while (acc >= TICK && n++ < 8) {
       prevPos.copy(me.body.pos); prevHeight = me.body.height;
+      for (const v of actorVis.values()) { v.prev.copy(v.actor.pos); v.prevYaw = v.actor.yaw; }
       const events = stepWorld(world, { [me.id]: sampleInput() });
       reloadReq = false; jumpLatch = false; weaponReq = null;
       onEvents(events);
@@ -311,13 +352,15 @@ renderer.setAnimationLoop(() => {
 
 function present(dt, alpha) {
   pos.lerpVectors(prevPos, me.body.pos, alpha);
-  const height = lerp(prevHeight, me.body.height, alpha);
+  let height = lerp(prevHeight, me.body.height, alpha);
+  if (deadT > 0) { deadT += dt; height = lerp(height, 0.45, Math.min(1, deadT * 2.5)); }
   const wid = currentWeapon(world, me), S = WEAPONS[wid], g = me.guns[wid];
   const vm = VM.weapon && VM.weapon.userData.viewmodel, t = vm && vm.ads ? g.ads : 0;
   adsBlend = t;
   feel.update(camera, dt, { pos, height, player: me.body, yaw: lookYP.yaw, pitch: lookYP.pitch, V, P, fovOverride: t > 0.001 ? lerp(V.fov, vm.ads.cameraFov, t) : null });
+  if (deadT > 0) camera.rotation.z = lerp(0, 1.2, Math.min(1, deadT * 2));
   // viewmodel: Gun lab hip/ADS/kick/reload, plus Movement lab bob, sway and sprint pose
-  if (vm) {
+  if (vm && me.alive) {
     const fx = feel.fx, hp = vm.hip.position, hr = vm.hip.rotationDeg, ap = vm.ads ? vm.ads.position : hp;
     sway.x = lerp(sway.x, Math.max(-40, Math.min(40, swayIn.x)), Math.min(1, dt * 10));
     sway.y = lerp(sway.y, Math.max(-40, Math.min(40, swayIn.y)), Math.min(1, dt * 10));
@@ -339,7 +382,22 @@ function present(dt, alpha) {
   }
   muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 300);
   for (let i = tracers.length - 1; i >= 0; i--) { const tr = tracers[i]; tr.t -= dt; tr.l.material.opacity = Math.max(0, tr.t / tr.life) * 0.9; if (tr.t <= 0) { scene.remove(tr.l); tr.l.geometry.dispose(); tr.l.material.dispose(); tracers.splice(i, 1); } }
-  for (const v of actorVis.values()) CLIB.animate(v.obj, v.anim, dt * v.anim.rate);
+  for (const v of actorVis.values()) {
+    const a = v.actor;
+    v.obj.position.lerpVectors(v.prev, a.pos, alpha);
+    let dy = a.yaw - v.prevYaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+    v.obj.rotation.y = v.prevYaw + dy * alpha;
+    if (a.alive) {
+      // legs from speed and crouch; strafe when moving mostly sideways relative to facing
+      const vx = a.pos.x - v.prev.x, vz = a.pos.z - v.prev.z, cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
+      const lx = vx * cy - vz * sy, lz = vx * sy + vz * cy;
+      let legs = a.crouch ? (a.speed > 0.3 ? 'crouchWalk' : 'crouch') : a.speed > 3 ? 'run' : a.speed > 0.3 ? 'walk' : 'idle';
+      if (!a.crouch && a.speed > 0.3 && a.speed <= 3 && Math.abs(lx) > Math.abs(lz) * 1.2) legs = lx > 0 ? 'strafeL' : 'strafeR';
+      CLIB.setLegs(v.anim, legs); CLIB.setUpper(v.anim, a.aiming ? 'aim' : 'carry');
+    }
+    CLIB.animate(v.obj, v.anim, dt * v.anim.rate);
+  }
+  for (const l of flashLights) l.intensity = Math.max(0, l.intensity - dt * 220);
   ps.update(dt);
   look.follow(pos); look.tick(dt);
   updateListener();
@@ -362,13 +420,17 @@ function hud(g, S, t) {
   a.querySelector('.wname').textContent = `${LABELS[currentWeapon(world, me)] || ''} · ${S.mode}`;
   const r = a.querySelector('.reload'); r.style.display = g.reloadT > 0 ? 'block' : 'none';
   if (g.reloadT > 0) r.firstChild.style.width = (100 * (1 - g.reloadT / (g.ammo === 0 ? S.reloadEmptyTime : S.reloadTime))) + '%';
-  $('health').querySelector('span').textContent = Math.ceil(me.hp); $('health').querySelector('i').style.width = (100 * me.hp / me.maxHp) + '%';
+  $('health').querySelector('span').textContent = Math.ceil(me.hp); const hb = $('health').querySelector('i'); hb.style.width = (100 * me.hp / me.maxHp) + '%'; hb.style.background = me.hp < 35 ? '#ef4444' : me.hp < 65 ? '#f2c14e' : '#7ddc7a';
+  hurtT = Math.max(0, hurtT - 1 / 60); hurtDirT = Math.max(0, hurtDirT - 1 / 60);
+  $('hurt').style.opacity = String(Math.min(1, hurtT * 1.6 + (me.alive ? Math.max(0, (40 - me.hp) / 60) : 0.6)));
+  const dd = $('dmgdir'); dd.style.opacity = String(Math.min(1, hurtDirT)); dd.style.transform = `translate(-50%, -50%) rotate(${-(hurtDir) }rad)`;
   const total = world.actors.filter(x => x.team === 'enemy').length, left = world.actors.filter(x => x.team === 'enemy' && x.alive).length;
   const el = roundStart ? world.time - roundStart : 0;
   $('obj').innerHTML = ended ? '' : `CLEAR THE BLOCK · hostiles <b>${left}</b> / ${total} · ${fmtTime(el)}`;
+  if ($('dbg').style.display === 'block' && world.ai) $('dbg').dataset.ai = world.ai.enemies.map(a => a.alive ? a.state[0].toUpperCase() : '-').join('');
   if ($('dbg').style.display === 'block') {
     const i = renderer.info.render;
-    $('dbg').textContent = `${fps.toFixed(0)} fps · ${i.calls} draw calls · ${(i.triangles / 1000).toFixed(0)}k tris · ${level.lights.length} lamp lights · ${mergeInfo.meshesBefore} meshes merged to ${mergeInfo.meshesAfter}\npos ${me.body.pos.x.toFixed(1)} ${me.body.pos.y.toFixed(2)} ${me.body.pos.z.toFixed(1)} · ${Math.hypot(me.body.vel.x, me.body.vel.z).toFixed(1)} m/s · look ${LOOKS[lookKey].name}`;
+    $('dbg').textContent = `${fps.toFixed(0)} fps · ${i.calls} draw calls · ${(i.triangles / 1000).toFixed(0)}k tris · ${level.lights.length} lamp lights · ${mergeInfo.meshesBefore} meshes merged to ${mergeInfo.meshesAfter}\npos ${me.body.pos.x.toFixed(1)} ${me.body.pos.y.toFixed(2)} ${me.body.pos.z.toFixed(1)} · ${Math.hypot(me.body.vel.x, me.body.vel.z).toFixed(1)} m/s · look ${LOOKS[lookKey].name}\nenemies ${world.ai ? world.ai.enemies.map(a => a.alive ? a.state : 'down').join(' · ') : ''}`;
   }
 }
 
@@ -385,6 +447,7 @@ if (AUTOTEST) {
       const dx = a.pos.x - e.x, dy = y - e.y, dz = a.pos.z - e.z;
       lookYP.yaw = Math.atan2(-dx, -dz); lookYP.pitch = Math.atan2(dy, Math.hypot(dx, dz));
     },
+    get ai() { return world.ai; }, godMode(on) { if (on) { me.maxHp = me.hp = 1e6; } else { me.maxHp = 100; me.hp = 100; } },
     teleport(x, z) { me.body.pos.set(x, 0.2, z); me.body.vel.set(0, 0, 0); prevPos.copy(me.body.pos); },
   };
 }

@@ -974,6 +974,150 @@
     7
    ],
    "rotY": 0
+  },
+  {
+   "id": 74,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    -30,
+    0,
+    10
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 75,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    -22,
+    0,
+    3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 76,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    -14,
+    0,
+    11
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 77,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    -4,
+    0,
+    9
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 78,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    6,
+    0,
+    11
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 79,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    10,
+    0,
+    3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 80,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    19,
+    0,
+    6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 81,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    26,
+    0,
+    10
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 82,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    33,
+    0,
+    6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 83,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    28,
+    0,
+    1
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 84,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    -26,
+    0,
+    12
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 85,
+   "type": "marker",
+   "kind": "patrolPoint",
+   "params": {},
+   "pos": [
+    0,
+    0,
+    2
+   ],
+   "rotY": 0
   }
  ]
 }
