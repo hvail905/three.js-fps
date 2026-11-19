@@ -6,6 +6,8 @@ import { resolve } from 'node:path';
 const labs = readdirSync(resolve(import.meta.dirname, 'labs')).filter(d => existsSync(resolve(import.meta.dirname, 'labs', d, 'index.html')));
 const input = { hub: resolve(import.meta.dirname, 'index.html'), game: resolve(import.meta.dirname, 'game', 'index.html') };
 for (const d of labs) input[d] = resolve(import.meta.dirname, 'labs', d, 'index.html');
+// prototypes: proto/<name>/index.html
+for (const d of readdirSync(resolve(import.meta.dirname, 'proto'))) if (existsSync(resolve(import.meta.dirname, 'proto', d, 'index.html'))) input['proto-' + d] = resolve(import.meta.dirname, 'proto', d, 'index.html');
 
 export default defineConfig({
   // GitHub Pages serves the site under /<repo>/; set BASE in CI, leave it '/' locally.

@@ -28,7 +28,7 @@ export const MARKERS = {
 export const COLORS = { grey: ['#bdbdbd', '#2a2a2a'], light: ['#e6e6e6', '#333333'], dark: ['#5a5a5a', '#1a1a1a'], yellow: ['#f2c14e', '#3a2a00'], red: ['#d9534f', '#3a0f0e'], blue: ['#5b8bd9', '#10213d'] };
 
 // Surface types decide impact sounds and particles. Index order is stable (stored per triangle).
-export const SURFACES = ['concrete', 'metal', 'wood', 'glass', 'dirt', 'asphalt'];
+export const SURFACES = ['concrete', 'metal', 'wood', 'glass', 'dirt', 'asphalt', 'water', 'flesh'];
 const KIT_SURFACE = {
   vehicles: 'metal',
   facades: 'concrete',

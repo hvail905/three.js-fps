@@ -1,0 +1,392 @@
+{
+ "kind": "sewerLevel",
+ "version": 1,
+ "name": "Gallery 1",
+ "cell": 2,
+ "legend": {
+  "#": "rock",
+  ".": "tunnel",
+  "~": "water channel",
+  "R": "room",
+  "P": "pump hall",
+  "v": "crawl vent",
+  "X": "exit gate"
+ },
+ "heights": {
+  ".": {
+   "floor": 0,
+   "ceil": 3
+  },
+  "~": {
+   "floor": -0.25,
+   "ceil": 3
+  },
+  "R": {
+   "floor": 0,
+   "ceil": 2.8
+  },
+  "P": {
+   "floor": 0,
+   "ceil": 5.5
+  },
+  "v": {
+   "floor": 0,
+   "ceil": 1.25
+  },
+  "X": {
+   "floor": 0,
+   "ceil": 3.2
+  }
+ },
+ "map": [
+  "####################################",
+  "#RRRR###########...#################",
+  "#RRRR............~.#################",
+  "#RRRR###.#######.~.#################",
+  "#RRRR###.#######.~.#################",
+  "########.#######.~.#RRRR############",
+  "########.#######.~..RRRR############",
+  "######RRRRR#####.~.#RRRR############",
+  "######R~~~R#####.~.#################",
+  "######R~~~R#####.~.#################",
+  "################.~.#################",
+  "################.~.vvvvvvvvvvv######",
+  "################.~.##########v######",
+  "################.~.##########v######",
+  "################.~.##########v######",
+  "################.~.##########v######",
+  "###########PPPPPP~PPPPPPPP###v######",
+  "###########PPPPPP~PPPPPPPP###v######",
+  "###########PPPPPP~PPPPPPPP###v###XX#",
+  "###########PPPPPP~PPPPPPPP.......XX#",
+  "###########PPPPPP~PPPPPPPP#######XX#",
+  "###########PPPPPP~PPPPPPPP##########",
+  "####################################",
+  "####################################"
+ ],
+ "player": {
+  "cell": [
+   2,
+   3
+  ],
+  "yaw": -90
+ },
+ "zombies": [
+  {
+   "cell": [
+    16,
+    13
+   ],
+   "yaw": 0,
+   "state": "idle"
+  },
+  {
+   "cell": [
+    14,
+    18
+   ],
+   "yaw": 90,
+   "state": "idle"
+  },
+  {
+   "cell": [
+    20,
+    19
+   ],
+   "yaw": -90,
+   "state": "idle"
+  },
+  {
+   "cell": [
+    22,
+    17
+   ],
+   "yaw": 180,
+   "state": "idle"
+  },
+  {
+   "cell": [
+    13,
+    20
+   ],
+   "yaw": 45,
+   "state": "idle"
+  },
+  {
+   "cell": [
+    30,
+    19
+   ],
+   "yaw": -90,
+   "state": "idle"
+  }
+ ],
+ "pickups": [
+  {
+   "kind": "pipe",
+   "cell": [
+    12,
+    2
+   ]
+  },
+  {
+   "kind": "brick",
+   "cell": [
+    14,
+    2
+   ]
+  },
+  {
+   "kind": "brick",
+   "cell": [
+    18,
+    9
+   ]
+  },
+  {
+   "kind": "bottle",
+   "cell": [
+    16,
+    6
+   ]
+  },
+  {
+   "kind": "bottle",
+   "cell": [
+    18,
+    13
+   ]
+  },
+  {
+   "kind": "pistol",
+   "cell": [
+    22,
+    6
+   ]
+  },
+  {
+   "kind": "bandage",
+   "cell": [
+    21,
+    5
+   ]
+  },
+  {
+   "kind": "ammo",
+   "cell": [
+    24,
+    16
+   ]
+  },
+  {
+   "kind": "brick",
+   "cell": [
+    12,
+    17
+   ]
+  },
+  {
+   "kind": "bottle",
+   "cell": [
+    25,
+    21
+   ]
+  },
+  {
+   "kind": "bandage",
+   "cell": [
+    29,
+    15
+   ]
+  },
+  {
+   "kind": "brick",
+   "cell": [
+    9,
+    8
+   ]
+  },
+  {
+   "kind": "ammo",
+   "cell": [
+    6,
+    8
+   ]
+  }
+ ],
+ "lights": [
+  {
+   "cell": [
+    2,
+    2
+   ],
+   "color": "#ffcf8a",
+   "intensity": 6,
+   "flicker": 0.5
+  },
+  {
+   "cell": [
+    10,
+    2
+   ],
+   "color": "#d8e4ff",
+   "intensity": 5,
+   "flicker": 0.1
+  },
+  {
+   "cell": [
+    17,
+    1
+   ],
+   "color": "#ffcf8a",
+   "intensity": 7,
+   "flicker": 0.0
+  },
+  {
+   "cell": [
+    16,
+    10
+   ],
+   "color": "#9fd0a0",
+   "intensity": 4,
+   "flicker": 0.8
+  },
+  {
+   "cell": [
+    22,
+    6
+   ],
+   "color": "#ffd9a0",
+   "intensity": 6,
+   "flicker": 0.2
+  },
+  {
+   "cell": [
+    14,
+    18
+   ],
+   "color": "#ff9a5a",
+   "intensity": 10,
+   "flicker": 0.3,
+   "height": 4.6
+  },
+  {
+   "cell": [
+    22,
+    20
+   ],
+   "color": "#d8e4ff",
+   "intensity": 8,
+   "flicker": 0.0,
+   "height": 4.6
+  },
+  {
+   "cell": [
+    33,
+    19
+   ],
+   "color": "#ff5040",
+   "intensity": 7,
+   "flicker": 0.0
+  }
+ ],
+ "triggers": [
+  {
+   "id": "wake",
+   "cells": [
+    1,
+    1,
+    4,
+    4
+   ],
+   "voice": [
+    "Good. You are awake.",
+    "Do not bother calling out. Nobody up here is listening, except me.",
+    "There is a door. Walk through it."
+   ]
+  },
+  {
+   "id": "pipe",
+   "cells": [
+    10,
+    2,
+    13,
+    2
+   ],
+   "voice": [
+    "A length of pipe. Take it.",
+    "It will not last. Nothing down here does."
+   ]
+  },
+  {
+   "id": "channel",
+   "cells": [
+    16,
+    1,
+    18,
+    4
+   ],
+   "voice": [
+    "Follow the water. Quietly.",
+    "Something in the channel ahead used to be a person. It is slow. You are not. Yet."
+   ]
+  },
+  {
+   "id": "storage",
+   "cells": [
+    20,
+    5,
+    23,
+    7
+   ],
+   "voice": [
+    "A gift. Six rounds.",
+    "Spend them as if they were your last. They are."
+   ]
+  },
+  {
+   "id": "hall",
+   "cells": [
+    15,
+    14,
+    19,
+    15
+   ],
+   "voice": [
+    "The pump hall. Several subjects.",
+    "Noise draws them. Light draws them. The vent behind you is... an option."
+   ]
+  },
+  {
+   "id": "vent",
+   "cells": [
+    19,
+    11,
+    22,
+    11
+   ],
+   "voice": [
+    "Clever."
+   ]
+  },
+  {
+   "id": "exit",
+   "cells": [
+    33,
+    18,
+    34,
+    20
+   ],
+   "kind": "exit",
+   "voice": [
+    "Subject twelve has cleared the first gallery.",
+    "Proceed."
+   ]
+  }
+ ],
+ "deathLines": [
+  "Disappointing.",
+  "Again.",
+  "You were doing so well."
+ ]
+}

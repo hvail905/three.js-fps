@@ -219,9 +219,9 @@ export const SOUNDS = {
         }
         if (p.gear > 0) { const g = tt + 0.02 + Math.random() * 0.04; ring(ctx, g, [[2700 * R(0.2), 0.5, 0.04], [4100 * R(0.2), 0.3, 0.03]], 0.06 * p.gear, out); chain(noise(ctx, g, 0.06, 'pink'), filter(ctx, 'bandpass', 1800, 1.2), env(ctx, g, 0.004, 0.08 * p.gear, 0.05), out); }
       };
-      const gap = 0.45 / p.pace;
-      for (let i = 0; i < 4; i++) step(t + i * gap * R(0.06), i % 2 === 0);
-      return gap * 4 + 0.5;
+      const gap = 0.45 / p.pace, n = p.count ?? 4; // count: 1 for a single step in game
+      for (let i = 0; i < n; i++) step(t + i * gap * R(0.06), i % 2 === 0);
+      return gap * n + 0.5;
     },
   },
   impact: {
@@ -273,6 +273,54 @@ export const SOUNDS = {
           return 0.5;
         }
       }
+    },
+  },
+  groan: {
+    label: 'Zombie voice', group: 'Creatures', gain: 1.4,
+    presets: {
+      moan: { pitch: 85, length: 1.6, rasp: 0.5, vowel: 0, anger: 0, variation: 0.8 },
+      snarl: { pitch: 120, length: 0.8, rasp: 0.9, vowel: 1, anger: 1, variation: 0.8 },
+      gurgle: { pitch: 70, length: 1.2, rasp: 0.7, vowel: 2, anger: 0.3, variation: 0.9 },
+    },
+    params: { pitch: [40, 220, 1, 'Hz'], length: [0.3, 3, 0.05, 's'], rasp: [0, 1, 0.01], vowel: [0, 2, 1, '0 oh · 1 ah · 2 uh'], anger: [0, 1, 0.01], variation: [0, 1, 0.01] },
+    play(ctx, out, t, p, R) {
+      // a buzzing glottal source (sawtooth with wobble) through vowel formants, plus breath and rasp
+      const L = p.length * R(0.25), f0 = p.pitch * R(0.15);
+      const src = ctx.createOscillator(); src.type = 'sawtooth';
+      src.frequency.setValueAtTime(f0 * (1 + 0.2 * p.anger), t); src.frequency.linearRampToValueAtTime(f0 * (0.75 + Math.random() * 0.3), t + L);
+      const wob = ctx.createOscillator(); wob.frequency.value = 5 + Math.random() * 7; const wg = gain(ctx, f0 * 0.06 * (0.5 + p.rasp)); wob.connect(wg); wg.connect(src.frequency);
+      src.start(t); src.stop(t + L + 0.1); wob.start(t); wob.stop(t + L + 0.1);
+      const V = [[600, 1000, 2500], [800, 1250, 2600], [450, 1150, 2400]][p.vowel | 0];
+      const body = ctx.createGain(); body.gain.value = 1;
+      const venv = env(ctx, t, 0.08 + 0.1 * (1 - p.anger), 0.9, L, 'lin', L * 0.3);
+      const shaper = drive(ctx, 0.3 + 0.6 * p.anger);
+      resonate(ctx, src, V.map(f => f * R(0.08)), 4, [1, 0.6, 0.25], body);
+      chain(body, shaper, venv, out);
+      chain(noise(ctx, t, L + 0.1, 'pink'), filter(ctx, 'bandpass', 1400 * R(0.2), 1.2), env(ctx, t, 0.05, 0.25 * p.rasp, L, 'lin', L * 0.3), out);
+      // wet clicks in the throat
+      for (let i = 0; i < 6 * p.rasp; i++) { const g = t + Math.random() * L; chain(noise(ctx, g, 0.02), filter(ctx, 'bandpass', 600 + Math.random() * 1200, 5), env(ctx, g, 0.001, 0.25, 0.015), out); }
+      return L + 0.3;
+    },
+  },
+  swing: {
+    label: 'Melee swing', group: 'Weapons', gain: 1.2,
+    presets: { fist: { weight: 0.3, speed: 1.3 }, pipe: { weight: 0.8, speed: 1 }, kick: { weight: 1, speed: 0.9 }, throw: { weight: 0.5, speed: 1.1 } },
+    params: { weight: [0, 1, 0.01], speed: [0.5, 2, 0.01] },
+    play(ctx, out, t, p, R) {
+      const L = 0.22 / p.speed * R(0.15);
+      chain(noise(ctx, t, L + 0.05, 'pink'), sweep(ctx, 'bandpass', 400 + p.weight * 200, 1600 + (1 - p.weight) * 1500, t, L, 1.4), env(ctx, t, L * 0.5, 0.5 + p.weight * 0.3, L * 0.6, 'lin'), out);
+      return L + 0.1;
+    },
+  },
+  intercom: {
+    label: 'Intercom', group: 'Interface', gain: 1.2,
+    presets: { open: { length: 0.35, crackle: 0.7, tone: 1 }, close: { length: 0.2, crackle: 0.5, tone: 0 } },
+    params: { length: [0.05, 1.5, 0.01, 's'], crackle: [0, 1, 0.01], tone: [0, 1, 1, 'chirp'] },
+    play(ctx, out, t, p) {
+      chain(noise(ctx, t, p.length + 0.1), filter(ctx, 'bandpass', 2200, 0.9), env(ctx, t, 0.005, 0.25, p.length, 'lin', p.length * 0.6), out);
+      for (let i = 0; i < 25 * p.crackle; i++) { const g = t + Math.random() * p.length; chain(noise(ctx, g, 0.01), filter(ctx, 'highpass', 2500), env(ctx, g, 0.0005, 0.3, 0.006), out); }
+      if (p.tone) chain(tone(ctx, t, 'square', 1400, 1400, 0.06), filter(ctx, 'lowpass', 3000), env(ctx, t, 0.002, 0.08, 0.06), out);
+      return p.length + 0.2;
     },
   },
   ui: {
