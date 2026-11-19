@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Level Blockout Editor</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#111; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  aside { width:260px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:10px; }
+  #props { width:250px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px; }
+  main { flex:1; position:relative; min-width:0; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:12px 0 4px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  button, select, input { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 7px; font:inherit; }
+  button { cursor:pointer; text-align:left; }
+  button.on { background:var(--acc); color:#111; border-color:var(--acc); font-weight:600; }
+  .row { display:grid; grid-template-columns:80px 1fr; gap:6px; align-items:center; margin:4px 0; }
+  .row label { color:var(--dim); font-size:12px; }
+  .row input { width:100%; padding:4px 6px; }
+  #toolbar { position:absolute; top:10px; left:10px; right:10px; display:flex; flex-wrap:wrap; gap:6px; pointer-events:none; }
+  #toolbar > * { pointer-events:auto; background:rgba(30,33,37,.9); }
+  #status { position:absolute; left:10px; bottom:10px; background:rgba(20,22,25,.88); border:1px solid var(--line); border-radius:6px; padding:6px 9px; font:12px ui-monospace, Menlo, monospace; color:var(--dim); pointer-events:none; white-space:pre; }
+  #walkHud { position:absolute; inset:0; pointer-events:none; display:none; }
+  #walkHud .ch { position:absolute; left:50%; top:50%; width:12px; height:12px; transform:translate(-50%,-50%); }
+  #walkHud .ch::before, #walkHud .ch::after { content:""; position:absolute; background:#fff; mix-blend-mode:difference; }
+  #walkHud .ch::before { left:5px; top:0; width:2px; height:12px; } #walkHud .ch::after { top:5px; left:0; height:2px; width:12px; }
+  #walkHud .msg { position:absolute; left:50%; top:16px; transform:translateX(-50%); background:rgba(20,22,25,.85); padding:6px 10px; border-radius:6px; color:var(--dim); }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:9; }
+  #modal.show { display:flex; }
+  #modal .box { width:min(620px,92vw); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  #modal textarea { width:100%; height:300px; background:#111317; color:var(--text); border:1px solid var(--line); border-radius:6px; font:12px ui-monospace, Menlo, monospace; padding:8px; }
+  #modal .actions { display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  #toast { position:absolute; right:12px; bottom:12px; background:var(--acc); color:#111; padding:7px 11px; border-radius:6px; font-weight:600; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  .hint { color:var(--dim); font-size:12px; margin:6px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <h1>Blockout</h1>
+    <div class="hint">Pick an item, then click the ground to place it. Click an object to select it.</div>
+    <div id="palette"></div>
+  </aside>
+  <main>
+    <div id="toolbar">
+      <button id="tSelect" class="on">Select (V)</button>
+      <button id="tMove">Move (W)</button>
+      <button id="tRotate">Rotate (E)</button>
+      <select id="snap"><option value="0.25">Snap 0.25 m</option><option value="0.5">Snap 0.5 m</option><option value="1" selected>Snap 1 m</option><option value="0">No snap</option></select>
+      <button id="tWalk">Walk test (P)</button>
+      <button id="tNew">New</button>
+      <button id="tCopy">Copy layout</button>
+      <button id="tLoad">Load layout</button>
+      <button id="tSample">Sample street</button>
+    </div>
+    <div id="status"></div>
+    <div id="walkHud"><div class="ch"></div><div class="msg">Walk test · WASD, Shift, Space, C · Esc to return to the editor</div></div>
+    <div id="toast"></div>
+  </main>
+  <div id="props"><h1>Selected</h1><div id="propBody" class="hint">Nothing selected.</div></div>
+</div>
+<div id="modal"><div class="box">
+  <p id="mMsg" style="margin:0 0 8px;color:var(--dim)"></p>
+  <textarea id="mText" spellcheck="false"></textarea>
+  <div class="actions"><button id="mApply">Apply</button><button id="mClose">Close</button></div>
+</div></div>
+
+<script type="module">
+import { createPropLibrary } from '../../src/assets/props.js';
+import { createVehicleLibrary } from '../../src/assets/vehicles.js';
+import { createFacadeLibrary } from '../../src/assets/facades.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshBVH } from 'three-mesh-bvh';
+import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from '../../src/sim/movement.js';
+
+const $ = id => document.getElementById(id);
+const KITS = { props: createPropLibrary(THREE), vehicles: createVehicleLibrary(THREE), facades: createFacadeLibrary(THREE) };
+const D2R = THREE.MathUtils.degToRad;
+
+// ---------- layout data ----------
+// Every placed thing is a plain record. The scene is rebuilt from these records.
+// { id, type: 'prim'|'kit'|'marker', kind, kit?, params, pos:[x,y,z], rotY (deg) }
+let layout = { version: 1, objects: [] };
+let nextId = 1;
+
+const PRIMS = {
+  block: { label: 'Block', params: { w: 4, h: 3, d: 4, color: 'grey' } },
+  wall: { label: 'Wall', params: { w: 6, h: 3, d: 0.3, color: 'dark' } },
+  platform: { label: 'Platform', params: { w: 6, h: 1, d: 6, color: 'light' } },
+  ramp: { label: 'Ramp', params: { w: 3, h: 2, angle: 30, color: 'light' } },
+  stairs: { label: 'Stairs', params: { w: 2, h: 3, rise: 0.2, run: 0.3, color: 'light' } },
+  pillar: { label: 'Pillar', params: { r: 0.4, h: 4, color: 'dark' } },
+  cover: { label: 'Low cover', params: { w: 2, h: 1.1, d: 0.6, color: 'yellow' } },
+};
+const MARKERS = {
+  playerSpawn: { label: 'Player spawn', color: 0x22c55e },
+  enemySpawn: { label: 'Enemy spawn', color: 0xef4444 },
+  objective: { label: 'Objective', color: 0xf2c14e },
+  coverPoint: { label: 'Cover point', color: 0x3b82f6 },
+  patrolPoint: { label: 'Patrol point', color: 0xa855f7 },
+};
+const COLORS = { grey: ['#bdbdbd', '#2a2a2a'], light: ['#e6e6e6', '#333333'], dark: ['#5a5a5a', '#1a1a1a'], yellow: ['#f2c14e', '#3a2a00'], red: ['#d9534f', '#3a0f0e'], blue: ['#5b8bd9', '#10213d'] };
+
+// ---------- renderer ----------
+const main = document.querySelector('main');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+main.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc9d4dc);
+scene.fog = new THREE.Fog(0xc9d4dc, 120, 400);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+camera.position.set(28, 30, 38);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, 0, 0); orbit.enableDamping = true; orbit.maxPolarAngle = Math.PI * 0.49;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.3));
+const sun = new THREE.DirectionalLight(0xffffff, 1.9);
+sun.position.set(40, 70, 30); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 250 }); sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+function gridTex(bg, fg) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 128, 128); g.fillStyle = fg; g.fillRect(0, 0, 128, 3); g.fillRect(0, 0, 3, 128);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+const matCache = {};
+function primMat(name) {
+  if (!matCache[name]) { const [bg, fg] = COLORS[name] || COLORS.grey; matCache[name] = new THREE.MeshStandardMaterial({ map: gridTex(bg, fg), roughness: 0.9 }); }
+  return matCache[name];
+}
+function worldUV(geo) { // object-space 1 m grid (good enough for blockout; textures follow the object)
+  const pos = geo.attributes.position, nrm = geo.attributes.normal, uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), nx = Math.abs(nrm.getX(i)), ny = Math.abs(nrm.getY(i)), nz = Math.abs(nrm.getZ(i));
+    if (nz >= nx && nz >= ny) uv.setXY(i, x, y); else if (nx >= ny) uv.setXY(i, z, y); else uv.setXY(i, x, z);
+  }
+  return geo;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: (() => { const t = gridTex('#d9d9d9', '#9a9a9a'); t.repeat.set(400, 400); return t; })(), roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const axes = new THREE.Group(); scene.add(axes);
+for (const [dir, col] of [[[1, 0, 0], 0xd9534f], [[0, 0, 1], 0x5b8bd9]]) {
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...dir.map(v => -v * 200)), new THREE.Vector3(...dir.map(v => v * 200))]), new THREE.LineBasicMaterial({ color: col }));
+  l.position.y = 0.01; axes.add(l);
+}
+
+// ---------- building objects from records ----------
+const world = new THREE.Group(); scene.add(world);
+const byId = new Map();
+
+function buildPrim(kind, p) {
+  const g = new THREE.Group(), m = primMat(p.color);
+  const add = (geo, x, y, z, ry = 0) => { const mesh = new THREE.Mesh(worldUV(geo), m); mesh.position.set(x, y, z); mesh.rotation.y = ry; mesh.castShadow = mesh.receiveShadow = true; g.add(mesh); return mesh; };
+  if (kind === 'ramp') {
+    const run = p.h / Math.tan(D2R(Math.min(80, Math.max(5, p.angle))));
+    const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(run, 0); s.lineTo(run, p.h); s.closePath();
+    const geo = new THREE.ExtrudeGeometry(s, { depth: p.w, bevelEnabled: false }); geo.translate(-run / 2, 0, -p.w / 2);
+    add(geo, 0, 0, 0, Math.PI / 2); // rises toward -Z
+  } else if (kind === 'stairs') {
+    const n = Math.max(1, Math.round(p.h / p.rise)), rise = p.h / n, L = n * p.run;
+    for (let k = 0; k < n; k++) add(new THREE.BoxGeometry(p.w, rise * (k + 1), p.run), 0, (rise * (k + 1)) / 2, L / 2 - p.run * (k + 0.5));
+  } else if (kind === 'pillar') {
+    add(new THREE.CylinderGeometry(p.r, p.r, p.h, 12), 0, p.h / 2, 0);
+  } else {
+    add(new THREE.BoxGeometry(p.w, p.h, p.d), 0, p.h / 2, 0);
+  }
+  return g;
+}
+function buildMarker(kind) {
+  const g = new THREE.Group(), col = MARKERS[kind].color;
+  const m = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.35, transparent: true, opacity: 0.85 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 20), m); base.position.y = 0.025; g.add(base);
+  const pole = new THREE.Mesh(kind === 'objective' ? new THREE.OctahedronGeometry(0.4) : new THREE.ConeGeometry(0.25, 0.9, 12), m);
+  pole.position.y = kind === 'objective' ? 1.4 : 0.5; g.add(pole);
+  if (kind.endsWith('Spawn')) { const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 8), m); arrow.rotation.x = -Math.PI / 2; arrow.position.set(0, 0.3, -0.7); g.add(arrow); }
+  g.userData.marker = true;
+  return g;
+}
+function buildRecord(rec) {
+  let obj;
+  try {
+    if (rec.type === 'prim') obj = buildPrim(rec.kind, rec.params);
+    else if (rec.type === 'marker') obj = buildMarker(rec.kind);
+    else obj = KITS[rec.kit].build({ prop: rec.kind, params: rec.params || {} });
+  } catch (e) { console.error(e); obj = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), primMat('red')); }
+  obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const root = new THREE.Group(); root.add(obj);
+  root.position.set(...rec.pos); root.rotation.y = D2R(rec.rotY || 0);
+  root.userData.rec = rec;
+  return root;
+}
+function disposeRoot(root) {
+  const rec = root.userData.rec;
+  if (rec.type === 'kit') KITS[rec.kit].dispose(root.children[0]);
+  else root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+}
+function addRecord(rec) { const root = buildRecord(rec); world.add(root); byId.set(rec.id, root); return root; }
+function rebuildRecord(rec) {
+  const old = byId.get(rec.id); const wasSel = selected === old;
+  if (old) { if (wasSel) tc.detach(); world.remove(old); disposeRoot(old); }
+  const root = addRecord(rec); if (wasSel) select(root);
+}
+function rebuildAll() {
+  select(null);
+  for (const r of [...world.children]) { world.remove(r); disposeRoot(r); }
+  byId.clear();
+  for (const rec of layout.objects) addRecord(rec);
+  nextId = layout.objects.reduce((m, r) => Math.max(m, r.id), 0) + 1;
+  save();
+}
+function save() { try { localStorage.setItem('blockout.v1', JSON.stringify(layout)); } catch (e) {} status(); }
+
+// ---------- palette ----------
+let pending = null; // record template being placed
+const ghost = new THREE.Group(); scene.add(ghost);
+function startPlacing(tpl) {
+  pending = tpl; clearGhost();
+  const g = buildRecord({ ...tpl, id: 0, pos: [0, 0, 0], rotY: 0 });
+  g.traverse(o => { if (o.isMesh) { o.material = Array.isArray(o.material) ? o.material.map(ghostMat) : ghostMat(o.material); o.castShadow = false; } });
+  ghost.add(g); ghost.userData.rotY = 0;
+  renderPalette();
+}
+const ghostMatCache = new Map();
+function ghostMat(m) { if (!ghostMatCache.has(m)) ghostMatCache.set(m, new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.35, depthWrite: false })); return ghostMatCache.get(m); }
+function clearGhost() { for (const c of [...ghost.children]) { ghost.remove(c); c.traverse(o => { if (o.isMesh) o.geometry.dispose(); }); } }
+function stopPlacing() { pending = null; clearGhost(); renderPalette(); }
+
+function renderPalette() {
+  const pal = $('palette'); pal.innerHTML = '';
+  const section = (title, items) => {
+    const h = document.createElement('h2'); h.textContent = title; pal.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'grid'; pal.appendChild(grid);
+    for (const [label, tpl] of items) {
+      const b = document.createElement('button'); b.textContent = label;
+      if (pending && pending.type === tpl.type && pending.kind === tpl.kind && pending.kit === tpl.kit) b.className = 'on';
+      b.onclick = () => (b.className === 'on' ? stopPlacing() : startPlacing(tpl));
+      grid.appendChild(b);
+    }
+  };
+  section('Primitives', Object.entries(PRIMS).map(([k, d]) => [d.label, { type: 'prim', kind: k, params: { ...d.params } }]));
+  section('Markers', Object.entries(MARKERS).map(([k, d]) => [d.label, { type: 'marker', kind: k, params: {} }]));
+  for (const [kitName, lib] of Object.entries(KITS)) {
+    const groups = {};
+    for (const [id, d] of Object.entries(lib.props)) (groups[d.category || kitName] ||= []).push([d.label, { type: 'kit', kit: kitName, kind: id, params: {} }]);
+    for (const [cat, items] of Object.entries(groups)) section(cat, items);
+  }
+  const h = document.createElement('h2'); h.textContent = 'Custom asset'; pal.appendChild(h);
+  const b = document.createElement('button'); b.textContent = 'Place from preset JSON…'; b.style.width = '100%';
+  b.onclick = () => modal('Paste a preset copied from the City Asset Builder:', '', text => {
+    const pr = JSON.parse(text);
+    const kit = KITS[pr.kit] ? pr.kit : Object.keys(KITS).find(k => KITS[k].props[pr.prop]);
+    if (!kit) throw new Error('Unknown asset ' + pr.prop);
+    startPlacing({ type: 'kit', kit, kind: pr.prop, params: pr.params || {} });
+  });
+  pal.appendChild(b);
+}
+
+// ---------- selection & transform ----------
+let selected = null;
+const selBox = new THREE.BoxHelper(undefined, 0xf2c14e); selBox.visible = false; scene.add(selBox);
+const tc = new TransformControls(camera, renderer.domElement);
+tc.setTranslationSnap(1); tc.setRotationSnap(D2R(15)); tc.showY = true;
+tc.addEventListener('dragging-changed', e => { orbit.enabled = !e.value; if (!e.value) commitTransform(); });
+tc.addEventListener('objectChange', () => { if (selected) selBox.setFromObject(selected); });
+scene.add(tc.getHelper());
+let mode = 'select';
+function setMode(m) {
+  mode = m;
+  for (const [id, mm] of [['tSelect', 'select'], ['tMove', 'translate'], ['tRotate', 'rotate']]) $(id).classList.toggle('on', mm === m);
+  if (m === 'select') tc.detach(); else if (selected) { tc.attach(selected); tc.setMode(m); tc.showX = tc.showZ = m === 'translate'; tc.showY = true; }
+}
+function select(root) {
+  selected = root;
+  if (!root) { selBox.visible = false; tc.detach(); renderProps(); return; }
+  selBox.setFromObject(root); selBox.visible = true;
+  if (mode !== 'select') { tc.attach(root); tc.setMode(mode); }
+  renderProps();
+}
+function commitTransform() {
+  if (!selected) return;
+  const rec = selected.userData.rec;
+  rec.pos = [round(selected.position.x), round(Math.max(0, selected.position.y)), round(selected.position.z)];
+  rec.rotY = round(THREE.MathUtils.radToDeg(selected.rotation.y));
+  selected.position.set(...rec.pos);
+  save(); renderProps();
+}
+const round = v => Math.round(v * 1000) / 1000;
+
+function renderProps() {
+  const body = $('propBody');
+  if (!selected) { body.className = 'hint'; body.innerHTML = 'Nothing selected.<br><br>Keys: V select · W move · E rotate · R rotate 90° · D duplicate · Delete remove · Esc cancel'; return; }
+  body.className = ''; body.innerHTML = '';
+  const rec = selected.userData.rec;
+  const title = document.createElement('div'); title.style.margin = '0 0 6px'; title.style.fontWeight = '600';
+  title.textContent = rec.type === 'kit' ? `${KITS[rec.kit].props[rec.kind].label} (${rec.kit})` : rec.type === 'marker' ? MARKERS[rec.kind].label : PRIMS[rec.kind].label;
+  body.appendChild(title);
+  const field = (label, value, onchange, type = 'number', opts) => {
+    const row = document.createElement('div'); row.className = 'row';
+    const l = document.createElement('label'); l.textContent = label; row.appendChild(l);
+    let inp;
+    if (type === 'select') { inp = document.createElement('select'); for (const o of opts) { const op = document.createElement('option'); op.value = op.textContent = o; inp.appendChild(op); } inp.value = value; }
+    else { inp = document.createElement('input'); inp.type = type; inp.value = value; inp.step = 'any'; }
+    inp.onchange = () => onchange(type === 'number' ? parseFloat(inp.value) : inp.value);
+    row.appendChild(inp); body.appendChild(row);
+  };
+  ['x', 'y', 'z'].forEach((a, i) => field(a.toUpperCase(), rec.pos[i], v => { if (isFinite(v)) { rec.pos[i] = v; selected.position.setComponent(i, v); selBox.setFromObject(selected); save(); } }));
+  field('Rotation °', rec.rotY || 0, v => { if (isFinite(v)) { rec.rotY = v; selected.rotation.y = D2R(v); selBox.setFromObject(selected); save(); } });
+  if (rec.type === 'prim') {
+    for (const [k, v] of Object.entries(rec.params)) {
+      if (k === 'color') field('Color', v, nv => { rec.params.color = nv; rebuildRecord(rec); save(); }, 'select', Object.keys(COLORS));
+      else field(k, v, nv => { if (isFinite(nv) && nv > 0) { rec.params[k] = nv; rebuildRecord(rec); save(); } });
+    }
+  }
+  if (rec.type === 'kit') {
+    const note = document.createElement('div'); note.className = 'hint';
+    note.textContent = Object.keys(rec.params || {}).length ? 'Uses custom preset parameters.' : 'Uses default parameters. Place a variant via "Place from preset JSON".';
+    body.appendChild(note);
+  }
+  const btns = document.createElement('div'); btns.className = 'grid'; btns.style.marginTop = '10px';
+  const mk = (t, f) => { const b = document.createElement('button'); b.textContent = t; b.onclick = f; btns.appendChild(b); };
+  mk('Duplicate (D)', duplicate); mk('Delete', removeSelected);
+  body.appendChild(btns);
+}
+function duplicate() {
+  if (!selected) return;
+  const rec = JSON.parse(JSON.stringify(selected.userData.rec));
+  rec.id = nextId++; rec.pos[0] += snapSize() || 1;
+  layout.objects.push(rec); select(addRecord(rec)); save();
+}
+function removeSelected() {
+  if (!selected) return;
+  const rec = selected.userData.rec;
+  layout.objects = layout.objects.filter(r => r !== rec);
+  tc.detach(); world.remove(selected); disposeRoot(selected); byId.delete(rec.id); select(null); save();
+}
+const snapSize = () => parseFloat($('snap').value);
+$('snap').onchange = () => tc.setTranslationSnap(snapSize() || null);
+
+// ---------- pointer: place / pick ----------
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+let downAt = null;
+function pickGround(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hits = ray.intersectObjects([ground, ...world.children], true).filter(h => h.face);
+  return hits;
+}
+function placementPoint(e) {
+  const hits = pickGround(e);
+  if (!hits.length) return null;
+  const h = hits[0], n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+  const p = h.point.clone();
+  const s = snapSize();
+  if (s) { p.x = Math.round(p.x / s) * s; p.z = Math.round(p.z / s) * s; }
+  p.y = n.y > 0.5 ? Math.max(0, h.point.y) : 0;
+  return p;
+}
+renderer.domElement.addEventListener('pointermove', e => {
+  if (walking || !pending) return;
+  const p = placementPoint(e); if (!p) return;
+  ghost.position.copy(p); ghost.rotation.y = D2R(ghost.userData.rotY || 0);
+});
+renderer.domElement.addEventListener('pointerdown', e => { downAt = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (walking || !downAt || e.button !== 0) return;
+  const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y); downAt = null;
+  if (moved > 4 || tc.dragging) return;
+  if (pending) {
+    const p = placementPoint(e); if (!p) return;
+    const rec = { id: nextId++, type: pending.type, kind: pending.kind, kit: pending.kit, params: JSON.parse(JSON.stringify(pending.params || {})), pos: [round(p.x), round(p.y), round(p.z)], rotY: ghost.userData.rotY || 0 };
+    if (!rec.kit) delete rec.kit;
+    layout.objects.push(rec); addRecord(rec); save();
+    return;
+  }
+  const hits = pickGround(e).filter(h => h.object !== ground);
+  if (!hits.length) { select(null); return; }
+  let o = hits[0].object; while (o.parent && o.parent !== world) o = o.parent;
+  select(o.parent === world ? o : null);
+});
+addEventListener('keydown', e => {
+  if (walking || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  if (e.code === 'Escape') { if (pending) stopPlacing(); else select(null); }
+  if (e.code === 'KeyR') {
+    if (pending) { ghost.userData.rotY = ((ghost.userData.rotY || 0) + 90) % 360; ghost.rotation.y = D2R(ghost.userData.rotY); }
+    else if (selected) { const rec = selected.userData.rec; rec.rotY = ((rec.rotY || 0) + 90) % 360; selected.rotation.y = D2R(rec.rotY); selBox.setFromObject(selected); save(); renderProps(); }
+  }
+  if (e.code === 'KeyV') setMode('select');
+  if (e.code === 'KeyW') setMode('translate');
+  if (e.code === 'KeyE') setMode('rotate');
+  if (e.code === 'KeyD') duplicate();
+  if (e.code === 'Delete' || e.code === 'Backspace') removeSelected();
+  if (e.code === 'KeyP') startWalk();
+});
+$('tSelect').onclick = () => setMode('select');
+$('tMove').onclick = () => setMode('translate');
+$('tRotate').onclick = () => setMode('rotate');
+
+// ---------- file ops ----------
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1600); }
+let modalApply = null;
+function modal(msg, text, apply) { $('mMsg').textContent = msg; $('mText').value = text; modalApply = apply; $('mApply').style.display = apply ? '' : 'none'; $('modal').classList.add('show'); if (!apply) $('mText').select(); }
+$('mClose').onclick = () => $('modal').classList.remove('show');
+$('mApply').onclick = () => { try { modalApply($('mText').value); $('modal').classList.remove('show'); } catch (err) { $('mMsg').textContent = 'Could not use that: ' + err.message; } };
+$('tNew').onclick = () => { layout = { version: 1, objects: [] }; rebuildAll(); toast('New layout'); };
+$('tCopy').onclick = async () => { const t = JSON.stringify(layout, null, 1); try { await navigator.clipboard.writeText(t); toast('Layout copied'); } catch (e) { modal('Clipboard blocked here. Copy manually:', t, null); } };
+$('tLoad').onclick = () => modal('Paste a layout JSON:', '', text => {
+  const d = JSON.parse(text);
+  if (!Array.isArray(d.objects)) throw new Error('missing "objects"');
+  layout = { version: 1, objects: d.objects.filter(r => r && Array.isArray(r.pos) && (r.type === 'prim' ? PRIMS[r.kind] : r.type === 'marker' ? MARKERS[r.kind] : KITS[r.kit] && KITS[r.kit].props[r.kind])) };
+  rebuildAll(); toast(`Loaded ${layout.objects.length} objects`);
+});
+$('tSample').onclick = () => { layout = sampleLayout(); rebuildAll(); toast('Sample street loaded'); };
+
+function sampleLayout() {
+  const o = []; let id = 1;
+  const P = (type, kind, pos, rotY = 0, params = {}, kit) => o.push({ id: id++, type, kind, ...(kit ? { kit } : {}), params, pos, rotY });
+  // street wall of facades on the north side, facing south (+Z)
+  let x = -30;
+  for (const f of ['brownstone', 'tenement', 'cornerShop', 'warehouse']) {
+    const w = { brownstone: 6, tenement: 6.4, cornerShop: 5.4, warehouse: 18 }[f];
+    P('kit', f, [x + w / 2, 0.15, -6], 0, {}, 'facades'); x += w;
+  }
+  P('prim', 'platform', [0, 0, -4], 0, { w: 70, h: 0.15, d: 4, color: 'light' });   // north sidewalk
+  P('prim', 'platform', [0, 0, 12], 0, { w: 70, h: 0.15, d: 4, color: 'light' });   // south sidewalk
+  for (const [k, px, rot] of [['streetLight', -24, 0], ['streetLight', -6, 0], ['streetLight', 12, 0], ['fireHydrant', -15, 0], ['trashCan', -2, 0], ['newspaperBox', 4, 0], ['busStop', 20, 0]]) P('kit', k, [px, 0.15, -3], rot, {}, 'props');
+  for (const [k, px] of [['sedan', -20], ['van', -10], ['hatchback', 2], ['boxTruck', 26]]) P('kit', k, [px, 0, -0.6], 90, {}, 'vehicles');
+  P('kit', 'sedan', [8, 0, 6], -90, { condition: 'wrecked' }, 'vehicles');
+  P('kit', 'jerseyBarrier', [-4, 0, 4], 0, { count: 2 }, 'props');
+  P('prim', 'cover', [14, 0, 8], 0, { w: 2, h: 1.1, d: 0.6, color: 'yellow' });
+  P('marker', 'playerSpawn', [-28, 0.15, 12], 270);
+  for (const [px, pz] of [[18, -3], [24, 8], [6, -3]]) P('marker', 'enemySpawn', [px, 0.15, pz], 90);
+  P('marker', 'objective', [30, 0.15, 12]);
+  return { version: 1, objects: o };
+}
+
+// ---------- walk test (movement sim on the layout) ----------
+let walking = false, walkCollider = null, player = null, accumulator = 0;
+const look = { yaw: 0, pitch: 0 }, keys = {}, prevPos = new THREE.Vector3(); let jumpLatch = false;
+function buildCollider() {
+  const geos = [];
+  world.updateMatrixWorld(true);
+  const floor = new THREE.BoxGeometry(400, 1, 400); floor.translate(0, -0.5, 0); geos.push(floor);
+  for (const root of world.children) {
+    const rec = root.userData.rec;
+    if (rec.type === 'marker') continue;
+    if (rec.type === 'prim') {
+      root.traverse(o => { if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); geos.push(g); } });
+    } else {
+      // kit assets collide as their oriented bounding box
+      const inner = root.children[0];
+      const bb = new THREE.Box3();
+      inner.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+      inner.traverse(o => { if (o.isMesh && !o.userData.isPropLight) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); bb.union(b); } });
+      if (bb.isEmpty()) continue;
+      const s = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3());
+      const g = new THREE.BoxGeometry(Math.max(0.05, s.x), Math.max(0.05, s.y), Math.max(0.05, s.z)); g.translate(c.x, c.y, c.z); g.applyMatrix4(root.matrixWorld); geos.push(g);
+    }
+  }
+  const clean = geos.map(g => { const ng = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(ng.attributes)) if (k !== 'position') ng.deleteAttribute(k); return ng; });
+  const merged = mergeGeometries(clean, false);
+  merged.boundsTree = new MeshBVH(merged);
+  return merged;
+}
+function startWalk() {
+  if (walking) return;
+  stopPlacing(); select(null);
+  walkCollider = buildCollider();
+  const spawnRec = layout.objects.find(r => r.type === 'marker' && r.kind === 'playerSpawn');
+  const sp = spawnRec ? new THREE.Vector3(...spawnRec.pos).add(new THREE.Vector3(0, 0.3, 0)) : new THREE.Vector3(orbit.target.x, 0.3, orbit.target.z);
+  player = makePlayer(sp); prevPos.copy(sp);
+  look.yaw = spawnRec ? D2R(spawnRec.rotY || 0) : 0; look.pitch = 0;
+  walking = true; orbit.enabled = false; tc.detach(); tc.getHelper().visible = false; axes.visible = false;
+  for (const r of world.children) if (r.userData.rec.type === 'marker') r.visible = false;
+  camera.fov = 75; camera.near = 0.05; camera.updateProjectionMatrix();
+  $('walkHud').style.display = 'block'; $('toolbar').style.display = 'none';
+  try { const p = renderer.domElement.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function stopWalk() {
+  walking = false; orbit.enabled = true; tc.getHelper().visible = true; axes.visible = true;
+  for (const r of world.children) r.visible = true;
+  camera.fov = 50; camera.near = 0.1; camera.updateProjectionMatrix();
+  camera.position.set(player.pos.x + 20, 25, player.pos.z + 25); orbit.target.copy(player.pos); orbit.update();
+  $('walkHud').style.display = 'none'; $('toolbar').style.display = '';
+  if (walkCollider) { walkCollider.dispose(); walkCollider = null; }
+}
+$('tWalk').onclick = startWalk;
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && walking) stopWalk(); });
+document.addEventListener('mousemove', e => { if (!walking || !document.pointerLockElement) return; look.yaw -= e.movementX * 0.0022; look.pitch = Math.max(-1.5, Math.min(1.5, look.pitch - e.movementY * 0.0022)); });
+addEventListener('keydown', e => { if (!walking) return; if (e.code === 'Space') { if (!keys.Space) jumpLatch = true; e.preventDefault(); } keys[e.code] = true; });
+addEventListener('keyup', e => { keys[e.code] = false; });
+const cmd = makeCommand();
+function walkStep(dt) {
+  accumulator += dt;
+  let n = 0;
+  while (accumulator >= TICK && n++ < 8) {
+    cmd.moveZ = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0); cmd.moveX = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    cmd.sprint = !!keys.ShiftLeft; cmd.jump = !!keys.Space || jumpLatch; cmd.crouch = !!keys.KeyC; cmd.yaw = look.yaw; cmd.pitch = look.pitch;
+    prevPos.copy(player.pos);
+    stepPlayer(player, cmd, DEFAULT_PARAMS, walkCollider.boundsTree);
+    jumpLatch = false; accumulator -= TICK;
+    if (player.pos.y < -20) { player.pos.set(0, 1, 0); player.vel.set(0, 0, 0); }
+  }
+  const a = accumulator / TICK;
+  camera.position.lerpVectors(prevPos, player.pos, a); camera.position.y += player.height - 0.12;
+  camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
+}
+
+// ---------- status & loop ----------
+function status() {
+  const counts = {};
+  for (const r of layout.objects) counts[r.type] = (counts[r.type] || 0) + 1;
+  let tris = 0; world.traverse(o => { if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  $('status').textContent = `${layout.objects.length} objects · ${counts.prim || 0} primitives · ${counts.kit || 0} assets · ${counts.marker || 0} markers · ${Math.round(tris).toLocaleString()} tris`;
+}
+function resize() { const w = main.clientWidth, h = main.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(main);
+
+try { const saved = JSON.parse(localStorage.getItem('blockout.v1') || 'null'); layout = saved && Array.isArray(saved.objects) ? saved : sampleLayout(); } catch (e) { layout = sampleLayout(); }
+renderPalette(); rebuildAll(); renderProps(); resize();
+if (location.hash === '#autotest') window.__ed = { startWalk, keys, look, get player() { return player; }, layout: () => layout, camera };
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (walking) walkStep(dt); else orbit.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

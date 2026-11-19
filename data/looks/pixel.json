@@ -1,0 +1,31 @@
+{
+  "kind": "lookSettings",
+  "version": 1,
+  "name": "Pixel",
+  "look": {
+    "autoAtmosphere": true,
+    "exposureTrim": 0,
+    "fogTrim": 1,
+    "exposure": 1,
+    "fogDensity": 0.003,
+    "bloomStrength": 0.35,
+    "bloomRadius": 0.4,
+    "bloomThreshold": 0.85,
+    "chromatic": 0,
+    "particleScale": 1,
+    "bloomTrim": 0.54,
+    "sunElevation": -20,
+    "sunAzimuth": 139,
+    "contrast": 1,
+    "saturation": 1.05,
+    "temperature": -0.01,
+    "tint": -0.01,
+    "vignette": 0.24,
+    "grain": 0.025,
+    "lens": "pixel",
+    "lensAmount": 0.15,
+    "dof": false,
+    "focus": 21,
+    "aperture": 0.6
+  }
+}

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Asset Builder</title>
+<style>
+  :root { --bg:#16181b; --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  aside { width:300px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:12px 12px 24px; }
+  main { flex:1; position:relative; min-width:0; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  h1 { font-size:14px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 10px; color:var(--acc); }
+  h2 { font-size:13px; margin:16px 0 8px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+  #propList { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #propList button { text-align:left; }
+  #tabs { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:4px; margin-bottom:12px; }
+  #tabs button { padding:8px 4px; font-weight:600; }
+  .cat { grid-column:1 / -1; color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin:8px 0 0; }
+  button { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:inherit; cursor:pointer; }
+  button:hover { border-color:#4a5058; }
+  button.on { background:var(--acc); color:#111; border-color:var(--acc); font-weight:600; }
+  .row { display:grid; grid-template-columns:96px 1fr 46px; align-items:center; gap:6px; margin:5px 0; }
+  .row label { color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); }
+  .row .val { font-variant-numeric:tabular-nums; font-size:12px; text-align:right; color:var(--text); }
+  .row input[type=text], .row select { grid-column:2 / span 2; width:100%; background:#14161a; color:var(--text); border:1px solid var(--line); border-radius:5px; padding:5px; font:inherit; }
+  .row input[type=color] { grid-column:2 / span 2; width:100%; height:26px; border:1px solid var(--line); border-radius:5px; background:none; padding:0; }
+  .row input[type=checkbox] { justify-self:start; accent-color:var(--acc); width:16px; height:16px; }
+  .btns { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:12px; }
+  .btns .wide { grid-column:1 / span 2; }
+  #toolbar { position:absolute; top:10px; left:10px; right:10px; display:flex; flex-wrap:wrap; gap:6px; pointer-events:none; }
+  #toolbar button { pointer-events:auto; background:rgba(30,33,37,.88); }
+  #toolbar button.on { background:var(--acc); }
+  #info { position:absolute; left:10px; bottom:10px; background:rgba(20,22,25,.85); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:12px/1.5 ui-monospace, Menlo, Consolas, monospace; pointer-events:none; white-space:pre; }
+  #crosshair { position:absolute; left:50%; top:50%; width:16px; height:16px; transform:translate(-50%,-50%); pointer-events:none; display:none; }
+  #crosshair::before, #crosshair::after { content:""; position:absolute; background:#fff; mix-blend-mode:difference; }
+  #crosshair::before { left:7px; top:0; width:2px; height:16px; }
+  #crosshair::after { top:7px; left:0; height:2px; width:16px; }
+  #scope { position:absolute; inset:0; display:none; pointer-events:none; background:radial-gradient(circle at center, transparent 0, transparent 34vmin, #000 34.3vmin); }
+  #scope::before, #scope::after { content:""; position:absolute; background:#000; }
+  #scope::before { left:50%; top:0; bottom:0; width:2px; transform:translateX(-1px); }
+  #scope::after { top:50%; left:0; right:0; height:2px; transform:translateY(-1px); }
+  #fpHelp { position:absolute; right:10px; top:56px; background:rgba(20,22,25,.85); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font-size:12px; color:var(--dim); display:none; pointer-events:none; }
+  #toast { position:absolute; right:12px; bottom:12px; background:var(--acc); color:#111; padding:7px 11px; border-radius:6px; font-weight:600; opacity:0; transition:opacity .25s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:10; }
+  #modal.show { display:flex; }
+  #modal .box { width:min(640px, 92vw); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  #modal textarea { width:100%; height:300px; background:#111317; color:var(--text); border:1px solid var(--line); border-radius:6px; font:12px ui-monospace, Menlo, Consolas, monospace; padding:8px; }
+  #modal .actions { display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  #modal p { margin:0 0 8px; color:var(--dim); }
+  @media (max-width: 760px) {
+    #app { flex-direction:column-reverse; }
+    aside { width:100%; height:46vh; border-right:none; border-top:1px solid var(--line); }
+    main { height:54vh; flex:none; }
+    #propList { grid-template-columns:1fr 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <h1>City Asset Builder</h1>
+    <div id="tabs"></div>
+    <div id="propList"></div>
+    <h2 id="propTitle"></h2>
+    <div id="params"></div>
+    <div class="btns">
+      <button id="bRandom">Randomize</button>
+      <button id="bReset">Reset</button>
+      <button id="bCopy">Copy preset</button>
+      <button id="bLoad">Load preset</button>
+      <button id="bLib" class="wide">Copy library code</button>
+    </div>
+  </aside>
+  <main>
+    <div id="toolbar">
+      <button id="tLineup">Lineup</button>
+      <button id="tGrey">Greybox</button>
+      <button id="tWire">Wireframe</button>
+      <button id="tHuman" class="on">1.8m human</button>
+      <button id="tBounds" class="on">Bounds</button>
+      <button id="tNight">Night</button>
+      <button id="tFrame">Frame (F)</button>
+      <button id="tFP" style="display:none">First person</button>
+      <button id="tADS" style="display:none">Aim</button>
+      <button id="tFire" style="display:none">Fire</button>
+    </div>
+    <div id="info"></div>
+    <div id="crosshair"></div>
+    <div id="scope"></div>
+    <div id="fpHelp">Drag to look · click to fire · right-click (or Aim) to aim down sights</div>
+    <div id="toast"></div>
+  </main>
+</div>
+<div id="modal"><div class="box">
+  <p id="modalMsg"></p>
+  <textarea id="modalText" spellcheck="false"></textarea>
+  <div class="actions"><button id="mApply">Apply</button><button id="mClose">Close</button></div>
+</div></div>
+
+<script type="module">
+import { createPropLibrary } from '../../src/assets/props.js';
+import { createVehicleLibrary } from '../../src/assets/vehicles.js';
+import { createFacadeLibrary } from '../../src/assets/facades.js';
+import { createWeaponLibrary } from '../../src/assets/weapons.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- builders ----------
+const KITS = {
+  props: { label: 'Props', fn: createPropLibrary, store: 'citykit.props.v2', lineup: { gap: 1.2, walk: { z: 0, depth: 5 }, align: 'center' }, def: 'dumpster' },
+  vehicles: { label: 'Vehicles', fn: createVehicleLibrary, store: 'citykit.vehicles.v1', lineup: { gap: 1.0, walk: null, align: 'center' }, def: 'sedan' },
+  facades: { label: 'Facades', fn: createFacadeLibrary, store: 'citykit.facades.v1', lineup: { gap: 0, walk: { z: 2.5, depth: 5 }, align: 'front' }, def: 'tenement' },
+  weapons: { label: 'Weapons', fn: createWeaponLibrary, store: 'citykit.weapons.v1', lineup: { gap: 0.35, walk: null, align: 'center' }, def: 'rifle', display: { lift: 1.3, rotY: -Math.PI / 2 } },
+};
+for (const k of Object.values(KITS)) k.lib = k.fn(THREE);
+const UI_STORE = 'citykit.ui.v1';
+
+const ui = { kit: 'props', lineup: false, grey: false, wire: false, human: true, bounds: true, night: false };
+try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_STORE) || '{}')); } catch (e) {}
+if (!KITS[ui.kit]) ui.kit = 'props';
+
+function sanitize(lib, id, params) {
+  const out = lib.defaults(id);
+  for (const [k, s] of Object.entries(lib.props[id].params)) {
+    if (!params || !(k in params)) continue;
+    const v = params[k];
+    if (s.type === 'range' && typeof v === 'number' && isFinite(v)) out[k] = Math.min(s.max, Math.max(s.min, v));
+    else if (s.type === 'bool' && typeof v === 'boolean') out[k] = v;
+    else if (s.type === 'select' && s.options.includes(v)) out[k] = v;
+    else if ((s.type === 'color' || s.type === 'text') && typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+for (const kit of Object.values(KITS)) {
+  const ids = Object.keys(kit.lib.props);
+  kit.state = { current: kit.def, params: {} };
+  for (const id of ids) kit.state.params[id] = kit.lib.defaults(id);
+  try {
+    const saved = JSON.parse(localStorage.getItem(kit.store) || 'null');
+    if (saved) {
+      for (const id of ids) if (saved.params?.[id]) kit.state.params[id] = sanitize(kit.lib, id, saved.params[id]);
+      if (ids.includes(saved.current)) kit.state.current = saved.current;
+    }
+  } catch (e) {}
+}
+const K = () => KITS[ui.kit];
+function persist() {
+  try {
+    localStorage.setItem(K().store, JSON.stringify(K().state));
+    localStorage.setItem(UI_STORE, JSON.stringify(ui));
+  } catch (e) {}
+}
+
+// ---------- renderer / scene ----------
+const main = document.querySelector('main');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+main.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+
+const hemi = new THREE.HemisphereLight(0xdfe8f0, 0x50483e, 1.2);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+scene.add(sun, sun.target);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0x5d6166, roughness: 0.95 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(100, 100, 0x2a2d31, 0x464a50);
+grid.position.y = 0.002;
+scene.add(grid);
+
+const human = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 1.3, 4, 10), new THREE.MeshStandardMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.55, roughness: 0.8 }));
+human.castShadow = true;
+scene.add(human);
+const boundsHelper = new THREE.Box3Helper(new THREE.Box3(), 0xf2c14e);
+scene.add(boundsHelper);
+
+const stage = new THREE.Group();
+scene.add(stage);
+const SIDEWALK_H = 0.15;
+let selectedObj = null;
+
+const greySolid = new THREE.MeshStandardMaterial({ color: 0xbdbdbd, roughness: 0.85, flatShading: true });
+const greyGlass = new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.2, transparent: true, opacity: 0.3, depthWrite: false });
+const greyLamp = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.5 });
+const greyFor = m => m.userData.role === 'glass' ? greyGlass : m.userData.role === 'lamp' ? greyLamp : greySolid;
+
+// ---------- build ----------
+function clearStage() {
+  for (const c of [...stage.children]) {
+    stage.remove(c);
+    const owner = c.userData.kit ? KITS[c.userData.kit].lib : null;
+    if (owner) owner.dispose(c); else c.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+  }
+}
+function makeProp(id) {
+  let o = K().lib.build({ prop: id, params: K().state.params[id] });
+  const d = K().display;
+  if (d) { const inner = new THREE.Group(); inner.add(o); inner.rotation.y = d.rotY; inner.position.y = d.lift; o = new THREE.Group(); o.add(inner); }
+  o.userData.kit = ui.kit;
+  return o;
+}
+function categoryOf(id) { return K().lib.props[id].category || 'All'; }
+const CAT_ORDER = ['Street furniture', 'Traffic & road', 'Utilities', 'Commerce & storefront', 'Vegetation', 'Cars', 'Commercial', 'Facades', 'Firearms', 'Melee'];
+function orderedIds() {
+  const ids = Object.keys(K().lib.props), rank = id => { const i = CAT_ORDER.indexOf(categoryOf(id)); return i < 0 ? 99 : i; };
+  return ids.map((id, i) => [id, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]);
+}
+
+let buildError = null;
+function rebuild() {
+  clearStage();
+  buildError = null;
+  try {
+    const st = K().state, cfg = K().lineup;
+    if (!ui.lineup) {
+      selectedObj = makeProp(st.current);
+      stage.add(selectedObj);
+    } else {
+      const cat = categoryOf(st.current);
+      const ids = orderedIds().filter(id => categoryOf(id) === cat);
+      const items = ids.map(id => { const o = makeProp(id); o.updateMatrixWorld(true); return { id, o, bb: new THREE.Box3().setFromObject(o) }; });
+      const total = items.reduce((s, it) => s + (it.bb.max.x - it.bb.min.x), 0) + cfg.gap * (items.length - 1);
+      let x = -total / 2;
+      const yOff = cfg.walk ? SIDEWALK_H : 0;
+      for (const it of items) {
+        const z = cfg.align === 'front' ? 0 : -(it.bb.min.z + it.bb.max.z) / 2 - (cfg.walk ? 0.3 : 0);
+        it.o.position.set(x - it.bb.min.x, yOff, z);
+        x += it.bb.max.x - it.bb.min.x + cfg.gap;
+        stage.add(it.o);
+        if (it.id === st.current) selectedObj = it.o;
+      }
+      if (cfg.walk) {
+        const walk = new THREE.Mesh(new THREE.BoxGeometry(total + 6, SIDEWALK_H, cfg.walk.depth), new THREE.MeshStandardMaterial({ color: 0xa8a49c, roughness: 0.95 }));
+        walk.position.set(0, SIDEWALK_H / 2, cfg.walk.z); walk.receiveShadow = true; walk.castShadow = true;
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(total + 6, SIDEWALK_H + 0.02, 0.2), new THREE.MeshStandardMaterial({ color: 0xc9c5bd, roughness: 0.9 }));
+        curb.position.set(0, (SIDEWALK_H + 0.02) / 2, cfg.walk.z + cfg.walk.depth / 2 + 0.1); curb.receiveShadow = true;
+        stage.add(walk, curb);
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    buildError = e.message;
+    selectedObj = new THREE.Group(); stage.add(selectedObj);
+  }
+  applyLook();
+  updateHelpers();
+  persist();
+  if (fp.on) buildFP();
+}
+
+function applyLook() {
+  stage.traverse(o => {
+    if (!o.isMesh) return;
+    if (o.userData.orig === undefined) o.userData.orig = o.material;
+    const orig = o.userData.orig;
+    o.material = ui.grey ? (Array.isArray(orig) ? orig.map(greyFor) : greyFor(orig)) : orig;
+    for (const m of [].concat(o.material)) m.wireframe = ui.wire;
+  });
+  greySolid.wireframe = greyGlass.wireframe = greyLamp.wireframe = ui.wire;
+  if (typeof vmRoot !== 'undefined') lookOn(vmRoot);
+}
+function lookOn(root) {
+  root.traverse(o => {
+    if (!o.isMesh || o.userData.noLook) return;
+    if (o.userData.orig === undefined) o.userData.orig = o.material;
+    const orig = o.userData.orig;
+    o.material = ui.grey ? (Array.isArray(orig) ? orig.map(greyFor) : greyFor(orig)) : orig;
+    for (const m of [].concat(o.material)) m.wireframe = ui.wire;
+  });
+}
+
+const tmpBox = new THREE.Box3(), v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
+function updateHelpers() {
+  stage.updateMatrixWorld(true);
+  tmpBox.setFromObject(selectedObj);
+  const empty = tmpBox.isEmpty();
+  boundsHelper.box.copy(tmpBox);
+  boundsHelper.visible = ui.bounds && !empty;
+  if (fp.on) boundsHelper.visible = false;
+  human.visible = ui.human && !fp.on;
+  const floorY = ui.lineup && K().lineup.walk ? SIDEWALK_H : 0;
+  const hx = empty ? 1 : tmpBox.max.x + 0.6, hz = empty ? 0 : ui.kit === 'facades' ? 1.2 : (tmpBox.min.z + tmpBox.max.z) / 2;
+  human.position.set(hx, floorY + 0.9, hz);
+
+  const all = new THREE.Box3().setFromObject(stage);
+  if (!all.isEmpty() && !fp.on) {
+    const c = all.getCenter(v1), r = Math.max(4, all.getSize(v2).length() * 0.6);
+    sun.target.position.copy(c);
+    sun.position.copy(c).add(new THREE.Vector3(0.5, 1, 0.35).normalize().multiplyScalar(r * 2));
+    Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 0.1, far: r * 4 });
+    sun.shadow.camera.updateProjectionMatrix();
+  }
+
+  let tris = 0, meshes = 0, lights = 0;
+  selectedObj.traverse(o => {
+    if (o.isMesh) { meshes++; const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; }
+    if (o.userData.isPropLight) lights++;
+  });
+  const s = tmpBox.getSize(v2);
+  $('info').textContent = buildError ? 'Build error: ' + buildError :
+    `${K().lib.props[K().state.current].label}\n` +
+    `W ${s.x.toFixed(2)}m  D ${s.z.toFixed(2)}m  H ${s.y.toFixed(2)}m\n` +
+    `${Math.round(tris)} tris · ${meshes} meshes${lights ? ' · ' + lights + ' lights' : ''}`;
+}
+
+function frame() {
+  stage.updateMatrixWorld(true);
+  const target = ui.lineup ? new THREE.Box3().setFromObject(stage) : new THREE.Box3().setFromObject(selectedObj);
+  if (target.isEmpty()) return;
+  if (ui.human && !ui.lineup) target.expandByObject(human);
+  const c = target.getCenter(v1), radius = target.getSize(v2).length() / 2;
+  const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * (ui.lineup ? 0.75 : 1.05);
+  controls.target.copy(c);
+  camera.position.copy(c).add(new THREE.Vector3(0.55, 0.4, 1).normalize().multiplyScalar(dist));
+  camera.near = Math.max(0.02, dist / 300); camera.far = dist * 20; camera.updateProjectionMatrix();
+  controls.update();
+}
+
+// ---------- UI ----------
+function $(id) { return document.getElementById(id); }
+const labelOf = k => k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+
+function renderTabs() {
+  $('tabs').innerHTML = '';
+  for (const [key, kit] of Object.entries(KITS)) {
+    const b = document.createElement('button');
+    b.textContent = kit.label; b.className = key === ui.kit ? 'on' : '';
+    b.onclick = () => { if (ui.kit === key) return; if (fp.on) exitFP(); ui.kit = key; renderAll(); rebuild(); frame(); };
+    $('tabs').appendChild(b);
+  }
+}
+function renderPropList() {
+  const list = $('propList'); list.innerHTML = '';
+  let lastCat = null;
+  for (const id of orderedIds()) {
+    const cat = categoryOf(id);
+    if (cat !== lastCat) { const h = document.createElement('div'); h.className = 'cat'; h.textContent = cat; list.appendChild(h); lastCat = cat; }
+    const b = document.createElement('button');
+    b.textContent = K().lib.props[id].label;
+    b.className = id === K().state.current ? 'on' : '';
+    b.onclick = () => { K().state.current = id; renderPropList(); renderParams(); rebuild(); frame(); };
+    list.appendChild(b);
+  }
+}
+function visible(spec, p) {
+  if (!spec.when) return true;
+  return Object.entries(spec.when).every(([k, vals]) => vals.includes(p[k]));
+}
+function renderParams() {
+  const id = K().state.current, p = K().state.params[id], specs = K().lib.props[id].params;
+  $('propTitle').textContent = K().lib.props[id].label + ' parameters';
+  const wrap = $('params'); wrap.innerHTML = '';
+  for (const [k, s] of Object.entries(specs)) {
+    if (!visible(s, p)) continue;
+    const row = document.createElement('div'); row.className = 'row';
+    const lab = document.createElement('label'); lab.textContent = labelOf(k); lab.title = k; row.appendChild(lab);
+    let input;
+    if (s.type === 'range') {
+      input = document.createElement('input'); input.type = 'range';
+      Object.assign(input, { min: s.min, max: s.max, step: s.step, value: p[k] });
+      const val = document.createElement('span'); val.className = 'val';
+      const fmt = v => (s.step >= 1 ? String(v) : Number(v).toFixed(2));
+      val.textContent = fmt(p[k]);
+      input.oninput = () => { p[k] = parseFloat(input.value); val.textContent = fmt(p[k]); scheduleRebuild(); };
+      row.append(input, val);
+    } else if (s.type === 'color') {
+      input = document.createElement('input'); input.type = 'color'; input.value = p[k];
+      input.oninput = () => { p[k] = input.value; scheduleRebuild(); };
+      row.append(input);
+    } else if (s.type === 'bool') {
+      input = document.createElement('input'); input.type = 'checkbox'; input.checked = p[k];
+      input.onchange = () => { p[k] = input.checked; rebuild(); renderParams(); };
+      row.append(input);
+    } else if (s.type === 'select') {
+      input = document.createElement('select');
+      for (const o of s.options) { const op = document.createElement('option'); op.value = op.textContent = o; input.appendChild(op); }
+      input.value = p[k];
+      input.onchange = () => { p[k] = input.value; rebuild(); renderParams(); };
+      row.append(input);
+    } else if (s.type === 'text') {
+      input = document.createElement('input'); input.type = 'text'; input.value = p[k]; input.maxLength = 40;
+      input.oninput = () => { p[k] = input.value; scheduleRebuild(); };
+      row.append(input);
+    }
+    wrap.appendChild(row);
+  }
+}
+// Large facades and lineups rebuild once per frame at most while dragging a slider.
+let pending = false;
+function scheduleRebuild() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; rebuild(); }); }
+
+function renderAll() {
+  renderTabs(); renderPropList(); renderParams();
+  $('tLineup').textContent = ui.kit === 'facades' ? 'Street wall' : 'Lineup';
+  $('tFP').style.display = ui.kit === 'weapons' ? '' : 'none';
+  $('tADS').style.display = $('tFire').style.display = fp.on ? '' : 'none';
+}
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1600); }
+let modalApply = null;
+function openModal(msg, text, onApply) {
+  $('modalMsg').textContent = msg; $('modalText').value = text;
+  modalApply = onApply; $('mApply').style.display = onApply ? '' : 'none';
+  $('modal').classList.add('show');
+  $('modalText').focus(); if (!onApply) $('modalText').select();
+}
+$('mClose').onclick = () => $('modal').classList.remove('show');
+$('mApply').onclick = () => { if (modalApply && modalApply($('modalText').value) !== false) $('modal').classList.remove('show'); };
+async function copyText(text, label) {
+  try { await navigator.clipboard.writeText(text); toast(label + ' copied'); }
+  catch (e) { openModal('Clipboard blocked here. Select all and copy manually:', text, null); }
+}
+
+$('bCopy').onclick = () => {
+  const st = K().state;
+  const out = { kit: ui.kit, prop: st.current, version: K().lib.VERSION, params: st.params[st.current] };
+  if (ui.kit === 'weapons') {
+    const tmp = K().lib.build({ prop: st.current, params: st.params[st.current] });
+    out.derived = { kind: tmp.userData.kind, anchors: tmp.userData.anchors, viewmodel: tmp.userData.viewmodel };
+    K().lib.dispose(tmp);
+  }
+  copyText(JSON.stringify(out, null, 2), 'Preset');
+};
+$('bLoad').onclick = () => openModal('Paste a preset JSON (one object, or an array of them). Presets from any tab load into the right builder.', '', text => {
+  try {
+    const data = JSON.parse(text);
+    const list = Array.isArray(data) ? data : [data];
+    let last = null;
+    for (const pr of list) {
+      let kitKey = KITS[pr.kit] ? pr.kit : Object.keys(KITS).find(k => KITS[k].lib.props[pr.prop]);
+      if (!kitKey || !KITS[kitKey].lib.props[pr.prop]) throw new Error('Unknown asset "' + pr.prop + '"');
+      const kit = KITS[kitKey];
+      kit.state.params[pr.prop] = sanitize(kit.lib, pr.prop, pr.params || {});
+      kit.state.current = pr.prop;
+      try { localStorage.setItem(kit.store, JSON.stringify(kit.state)); } catch (e) {}
+      last = kitKey;
+    }
+    if (last) ui.kit = last;
+    renderAll(); rebuild(); frame(); toast('Preset loaded');
+  } catch (e) { $('modalMsg').textContent = 'Could not load: ' + e.message; return false; }
+});
+$('bLib').onclick = () => {
+  const fn = K().fn, name = fn.name;
+  const header = `// ${K().label} library v${K().lib.VERSION}\n// Usage: const lib = ${name}(THREE);\n//        const obj = lib.build(presetJson); scene.add(obj);\n//        lib.dispose(obj) when removing.\n`;
+  copyText(header + 'export ' + fn.toString() + '\n', K().label + ' library');
+};
+$('bReset').onclick = () => { const st = K().state; st.params[st.current] = K().lib.defaults(st.current); renderParams(); rebuild(); };
+$('bRandom').onclick = () => {
+  const st = K().state, p = st.params[st.current];
+  for (const [k, s] of Object.entries(K().lib.props[st.current].params)) {
+    if (s.type === 'range') { const n = Math.round((s.max - s.min) / s.step); p[k] = +(s.min + Math.round(Math.random() * n) * s.step).toFixed(4); }
+    else if (s.type === 'bool') p[k] = Math.random() < 0.5;
+    else if (s.type === 'select') p[k] = s.options[Math.floor(Math.random() * s.options.length)];
+  }
+  renderParams(); rebuild();
+};
+
+function toggle(btnId, key, after) {
+  const b = $(btnId); b.classList.toggle('on', ui[key]);
+  b.onclick = () => { ui[key] = !ui[key]; b.classList.toggle('on', ui[key]); after(); persist(); };
+}
+toggle('tLineup', 'lineup', () => { rebuild(); frame(); });
+toggle('tGrey', 'grey', applyLook);
+toggle('tWire', 'wire', applyLook);
+toggle('tHuman', 'human', updateHelpers);
+toggle('tBounds', 'bounds', updateHelpers);
+toggle('tNight', 'night', applyEnv);
+$('tFrame').onclick = frame;
+addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  if (e.code === 'KeyF' && !fp.on) frame();
+  if (fp.on && e.code === 'Space') { e.preventDefault(); fpFire(); }
+  if (e.code === 'KeyG') $('tGrey').click();
+});
+
+function applyEnv() {
+  const n = ui.night;
+  scene.background = new THREE.Color(n ? 0x0b0e14 : 0xbfd3e3);
+  scene.fog = new THREE.Fog(scene.background, n ? 40 : 120, n ? 160 : 400);
+  hemi.intensity = n ? 0.12 : 1.2;
+  sun.intensity = n ? 0.08 : 2.2;
+  sun.color.set(n ? 0x8899cc : 0xffffff);
+  renderer.toneMappingExposure = n ? 1.3 : 1.0;
+}
+
+// ---------- first-person weapon preview ----------
+const fp = { on: false, ads: false, adsT: 0, yaw: 0, pitch: 0, recoil: 0, swing: 0, flash: 0, weapon: null, drag: null, t: 0 };
+const weaponScene = new THREE.Scene();
+const weaponCam = new THREE.PerspectiveCamera(55, 1, 0.05, 10); // near plane clips stock/arm parts at the eye
+weaponScene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.6));
+const wKey = new THREE.DirectionalLight(0xffffff, 1.8); wKey.position.set(1, 2, 1.5); weaponScene.add(wKey);
+const wFill = new THREE.DirectionalLight(0xffffff, 1.1); wFill.position.set(-1, 0.6, 2); weaponScene.add(wFill);
+const flashLight = new THREE.PointLight(0xffd9a0, 0, 3, 2); weaponScene.add(flashLight);
+const vmRoot = new THREE.Group(); weaponScene.add(vmRoot);
+const flashMesh = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.95 }));
+flashMesh.userData.noLook = true; flashMesh.visible = false;
+const skinMat = new THREE.MeshStandardMaterial({ color: 0xc69c7a, roughness: 0.8, flatShading: true });
+const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x3a4436, roughness: 0.95, flatShading: true });
+const decalMat = new THREE.MeshBasicMaterial({ color: 0x111111, polygonOffset: true, polygonOffsetFactor: -4 });
+const decals = [];
+let range = null;
+
+function ringTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  for (let i = 5; i > 0; i--) { g.beginPath(); g.arc(128, 128, i * 25, 0, Math.PI * 2); g.fillStyle = i % 2 ? '#111' : '#f2f2f2'; g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function buildRange() {
+  range = new THREE.Group();
+  const wallM = new THREE.MeshStandardMaterial({ color: 0xcfcac0, roughness: 0.95 });
+  const back = new THREE.Mesh(new THREE.BoxGeometry(40, 8, 1), wallM); back.position.set(0, 4, -30); range.add(back);
+  const tm = new THREE.MeshStandardMaterial({ map: ringTex(), roughness: 0.8 });
+  const standM = new THREE.MeshStandardMaterial({ color: 0x5b4a3a, roughness: 0.9 });
+  [[-4, -10], [0, -14], [4, -10], [-7, -22], [7, -22], [0, -29.4]].forEach(([x, z]) => {
+    const t = new THREE.Mesh(new THREE.CircleGeometry(0.6, 32), tm); t.position.set(x, 1.6, z + 0.03); range.add(t);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 0.05), standM); board.position.set(x, 1.6, z); range.add(board);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1, 0.08), standM); post.position.set(x, 0.5, z - 0.05); range.add(post);
+  });
+  const crateM = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.9 });
+  [[-3, -6], [3.5, -17], [-6, -15]].forEach(([x, z]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), crateM); b.position.set(x, 0.6, z); range.add(b); });
+  range.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  range.visible = false;
+  scene.add(range);
+}
+
+function addArm(parent, at, side) {
+  const [x, y, z] = at;
+  const hand = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.06, 0.08), skinMat);
+  hand.position.set(x + side * 0.004, y - 0.01, z + 0.01);
+  hand.userData.noLook = true; parent.add(hand);
+  const from = new THREE.Vector3(x, y - 0.02, z + 0.05);
+  const to = from.clone().add(new THREE.Vector3(side * 0.06, -0.2, 0.42));
+  const dir = to.clone().sub(from), len = dir.length();
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.038, len, 8), sleeveMat);
+  arm.position.copy(from).add(to).multiplyScalar(0.5);
+  arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  arm.userData.noLook = true; parent.add(arm);
+}
+
+function buildFP() {
+  flashMesh.removeFromParent();
+  if (fp.weapon) { vmRoot.remove(fp.weapon); KITS.weapons.lib.dispose(fp.weapon); fp.weapon = null; }
+  const st = KITS.weapons.state;
+  try {
+    const w = KITS.weapons.lib.build({ prop: st.current, params: st.params[st.current] });
+    const a = w.userData.anchors;
+    addArm(w, a.grip, 1);
+    if (a.support) addArm(w, a.support, -1);
+    flashMesh.position.set(...a.muzzle); flashMesh.position.z -= 0.03;
+    w.add(flashMesh);
+    fp.weapon = w; vmRoot.add(w);
+    lookOn(vmRoot);
+  } catch (e) { console.error(e); }
+}
+
+function enterFP() {
+  if (!range) buildRange();
+  fp.on = true; fp.yaw = 0; fp.pitch = 0; fp.ads = false; fp.adsT = 0;
+  controls.enabled = false; stage.visible = false; human.visible = false; boundsHelper.visible = false;
+  range.visible = true;
+  camera.position.set(0, 1.7, 6); camera.near = 0.05; camera.far = 300;
+  sun.target.position.set(0, 0, -12); sun.position.set(10, 25, 0);
+  Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, near: 0.1, far: 80 }); sun.shadow.camera.updateProjectionMatrix();
+  $('crosshair').style.display = 'block'; $('fpHelp').style.display = 'block';
+  $('tFP').classList.add('on');
+  buildFP(); renderAll();
+}
+function exitFP() {
+  fp.on = false; controls.enabled = true; stage.visible = true; if (range) range.visible = false;
+  for (const d of decals) scene.remove(d); decals.length = 0;
+  flashMesh.removeFromParent();
+  if (fp.weapon) { vmRoot.remove(fp.weapon); KITS.weapons.lib.dispose(fp.weapon); fp.weapon = null; }
+  camera.fov = 45; camera.updateProjectionMatrix();
+  $('crosshair').style.display = 'none'; $('fpHelp').style.display = 'none'; $('scope').style.display = 'none'; vmRoot.visible = true;
+  $('tFP').classList.remove('on'); fp.ads = false; $('tADS').classList.remove('on');
+  renderAll(); updateHelpers(); frame();
+}
+$('tFP').onclick = () => (fp.on ? exitFP() : enterFP());
+$('tADS').onclick = () => { fp.ads = !fp.ads; $('tADS').classList.toggle('on', fp.ads); };
+$('tFire').onclick = () => fpFire();
+
+const ray = new THREE.Raycaster();
+function fpFire() {
+  if (!fp.on || !fp.weapon) return;
+  if (fp.weapon.userData.kind === 'melee') { if (fp.swing <= 0) fp.swing = 0.0001; return; }
+  fp.recoil = 1; fp.flash = 0.05;
+  ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hit = ray.intersectObjects(range ? [range, ground] : [ground], true).find(h => h.face);
+  if (hit) {
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    const d = new THREE.Mesh(new THREE.CircleGeometry(0.035, 8), decalMat);
+    d.position.copy(hit.point).addScaledVector(n, 0.004); d.lookAt(hit.point.clone().add(n));
+    scene.add(d); decals.push(d);
+    if (decals.length > 120) { const old = decals.shift(); scene.remove(old); old.geometry.dispose(); }
+  }
+}
+
+const cvs = renderer.domElement;
+cvs.addEventListener('contextmenu', e => { if (fp.on) e.preventDefault(); });
+cvs.addEventListener('pointerdown', e => {
+  if (!fp.on) return;
+  if (e.button === 2) { fp.ads = true; $('tADS').classList.add('on'); return; }
+  fp.drag = { x: e.clientX, y: e.clientY, moved: false };
+  try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
+});
+cvs.addEventListener('pointermove', e => {
+  if (!fp.on || !fp.drag) return;
+  const dx = e.clientX - fp.drag.x, dy = e.clientY - fp.drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) fp.drag.moved = true;
+  fp.yaw -= dx * 0.004; fp.pitch = Math.max(-1.4, Math.min(1.4, fp.pitch - dy * 0.004));
+  fp.drag.x = e.clientX; fp.drag.y = e.clientY;
+});
+cvs.addEventListener('pointerup', e => {
+  if (!fp.on) return;
+  if (e.button === 2) { fp.ads = false; $('tADS').classList.remove('on'); return; }
+  if (fp.drag && !fp.drag.moved) fpFire();
+  fp.drag = null;
+});
+
+const D2R = THREE.MathUtils.degToRad, lerp = THREE.MathUtils.lerp;
+function updateFP(dt) {
+  if (!fp.weapon) return;
+  fp.t += dt;
+  const vmd = fp.weapon.userData.viewmodel, melee = fp.weapon.userData.kind === 'melee';
+  const target = fp.ads && vmd.ads ? 1 : 0;
+  fp.adsT += (target - fp.adsT) * Math.min(1, dt * 12);
+  const t = vmd.ads ? fp.adsT : 0;
+  const hp = vmd.hip.position, hr = vmd.hip.rotationDeg, ap = vmd.ads ? vmd.ads.position : hp;
+    const adsFov = vmd.ads ? vmd.ads.cameraFov : 62;
+  camera.fov = lerp(75, adsFov, t); camera.updateProjectionMatrix();
+  const scoped = vmd.ads && vmd.ads.overlay === 'scope' && t > 0.85;
+  vmRoot.visible = !scoped;
+  $('scope').style.display = scoped ? 'block' : 'none';
+  camera.position.set(0, 1.7, 6);
+  camera.rotation.set(fp.pitch, fp.yaw, 0, 'YXZ');
+
+  fp.recoil = Math.max(0, fp.recoil - dt * 8);
+  fp.flash -= dt;
+  const k = vmd.kick, sway = (1 - t) * 0.003;
+  vmRoot.position.set(lerp(hp[0], ap[0], t) + Math.sin(fp.t * 1.3) * sway, lerp(hp[1], ap[1], t) + Math.sin(fp.t * 2.1) * sway, lerp(hp[2], ap[2], t) + fp.recoil * 0.045 * k * (1 - 0.5 * t));
+  vmRoot.rotation.set(D2R(lerp(hr[0], 0, t)) + fp.recoil * 0.12 * k * (1 - 0.6 * t), D2R(lerp(hr[1], 0, t)), D2R(lerp(hr[2], 0, t)), 'XYZ');
+  if (melee && fp.swing > 0) {
+    fp.swing += dt * 3.2;
+    const s = Math.sin(Math.min(1, fp.swing) * Math.PI);
+    vmRoot.rotation.x -= s * 1.1; vmRoot.rotation.y += s * 0.9; vmRoot.position.x -= s * 0.18; vmRoot.position.z -= s * 0.1;
+    if (fp.swing >= 1) fp.swing = 0;
+  }
+  flashMesh.visible = fp.flash > 0;
+  if (flashMesh.visible) flashMesh.scale.setScalar(0.7 + Math.random() * 0.8);
+  flashLight.intensity = fp.flash > 0 ? 3 : 0;
+  flashLight.position.copy(vmRoot.position).add(new THREE.Vector3(0, 0.05, -0.4));
+  $('crosshair').style.display = t > 0.5 ? 'none' : 'block';
+}
+
+function resize() {
+  const w = main.clientWidth, h = main.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  weaponCam.aspect = w / h; weaponCam.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(main);
+
+renderAll();
+applyEnv();
+rebuild();
+resize();
+frame();
+renderer.autoClear = false;
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (fp.on) updateFP(dt); else controls.update();
+  renderer.clear();
+  renderer.render(scene, camera);
+  if (fp.on && fp.weapon) { renderer.clearDepth(); renderer.render(weaponScene, weaponCam); }
+});
+</script>
+</body>
+</html>

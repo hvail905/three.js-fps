@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Lab</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#000; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  main { flex:1; position:relative; min-width:0; }
+  aside { width:320px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 24px; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:14px 0 4px; }
+  .row { display:grid; grid-template-columns:104px 1fr 46px; gap:6px; align-items:center; margin:3px 0; }
+  .row label { color:var(--dim); font-size:12px; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); } .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  .row select, .row .wide { grid-column:2 / span 2; width:100%; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  button, select, input[type=number] { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 7px; font:inherit; cursor:pointer; }
+  input[type=number] { width:100%; cursor:text; }
+  button.on { background:var(--acc); color:#111; font-weight:600; }
+  button.big { width:100%; padding:9px; font-weight:600; background:var(--acc); color:#111; margin-top:6px; }
+  .note { color:var(--dim); font-size:11.5px; margin:4px 0 2px; }
+  #stat { position:absolute; left:10px; top:10px; background:rgba(15,17,20,.82); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:12px ui-monospace, Menlo, monospace; color:var(--dim); pointer-events:none; white-space:pre; }
+  #help { position:absolute; left:10px; bottom:10px; background:rgba(15,17,20,.82); border:1px solid var(--line); border-radius:6px; padding:5px 8px; color:var(--dim); font-size:12px; pointer-events:none; }
+  #busy { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); color:#fff; font-size:15px; letter-spacing:.05em; pointer-events:none; }
+  #busy.show { display:flex; }
+  #cross { position:absolute; left:50%; top:50%; width:4px; height:4px; margin:-2px 0 0 -2px; border-radius:50%; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.6); display:none; pointer-events:none; }
+  #resume { position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:auto; }
+  #resume div { background:rgba(15,17,20,.9); border:1px solid var(--line); border-radius:8px; padding:14px 18px; text-align:center; cursor:pointer; }
+  #resume b { color:var(--acc); display:block; font-size:15px; margin-bottom:4px; }
+  @media (max-width: 760px) { #app { flex-direction:column; } aside { width:100%; height:45vh; border-left:none; } main { height:55vh; flex:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <main>
+    <canvas id="view"></canvas>
+    <div id="stat"></div>
+    <div id="help">Drag to orbit · right-drag to pan · scroll to zoom · <b>Walk test</b> drops you in with your movement settings</div>
+    <div id="cross"></div>
+    <div id="resume"><div><b>Click to resume walking</b>WASD move · Shift sprint · Space jump · C crouch/slide · R respawn · Esc pause</div></div>
+    <div id="busy">Generating…</div>
+  </main>
+  <aside id="panel">
+    <h1>Terrain lab</h1>
+    <div class="row"><label>Layout</label><select id="layout"></select></div>
+    <div class="row"><label>Biome</label><select id="biome"></select></div>
+    <div class="row"><label>Seed</label><input id="seed" type="number"><button id="bSeed" title="New random seed">New</button></div>
+    <div id="params"></div>
+    <h2>View</h2>
+    <div class="row"><label>Shading</label><select id="mode">
+      <option value="0">Textured</option><option value="1">Walkable slope</option><option value="2">Height + contours</option><option value="3">Layer weights</option></select></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+      <button id="tWire">Wireframe</button><button id="tShadow" class="on">Shadows</button><button id="tScatter" class="on">Scatter</button>
+    </div>
+    <button class="big" id="bWalk">Walk test</button>
+    <h2>Export</h2>
+    <div class="grid">
+      <button id="eJson">Settings .json</button><button id="eCopy">Copy settings</button>
+      <button id="eR16">Heightmap .r16 (zip)</button><button id="ePng">Heightmap .png</button>
+      <button id="eSplat">Splat map .png</button><button id="eGlb">Scene .glb (zip)</button>
+    </div>
+    <div class="note">The settings file is the real export: terrain.js rebuilds the identical map from it, so the game (and a co-op host) only ships the seed and settings. The .r16 is 16-bit raw for Unity/Unreal/Godot heightmap import; its zip includes the settings with the height range. The .glb bakes the ground layers into vertex colors.</div>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { MeshBVH } from 'three-mesh-bvh';
+import { generateTerrain, heightAt, BIOMES, LAYOUTS, DEFAULTS, mulberry32, makeNoise } from '../../src/world/terrain.js';
+import { makeLayerCanvas, makeWaterNormalCanvas } from '../../src/world/ground-textures.js';
+import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from '../../src/sim/movement.js';
+
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- parameters & UI
+// G = generator params (data, shared with the game). V = viewer-only params.
+const VIEW_DEFAULTS = { grassDensity: 22, grassHeight: 1, grassDist: 70, wind: 1, sunElev: 28, sunAzim: 215, fog: 0.006, exposure: 1.0 };
+const SPEC = [
+  ['Shape', [['size', 128, 1024, 64, 'm'], ['res', 'sel', [129, 257, 513], 'verts/side'], ['heightScale', 2, 150, 1, 'm'], ['featureScale', 30, 500, 5, 'm'], ['octaves', 1, 8, 1], ['roughness', 0.3, 0.7, 0.01], ['ridged', 0, 1, 0.01], ['warp', 0, 1.5, 0.01]]],
+  ['Erosion & steps', [['erosion', 0, 150000, 5000, 'drops'], ['erosionStrength', 0.05, 0.8, 0.01], ['terraces', 0, 12, 1], ['terraceSharp', 0, 1, 0.01]]],
+  ['Water & surface', [['water', 0, 0.6, 0.01, 'of height'], ['sandBand', 0, 6, 0.1, 'm'], ['rockSlope', 20, 60, 1, '°'], ['maxSlope', 30, 60, 1, '° walkable']]],
+  ['Urban grid', [['blockSize', 24, 96, 2, 'm'], ['roadWidth', 6, 20, 0.5, 'm'], ['parkChance', 0, 1, 0.01]]],
+  ['Scatter', [['treeDensity', 0, 3, 0.05, '×'], ['rockDensity', 0, 3, 0.05, '×'], ['shrubDensity', 0, 3, 0.05, '×']]],
+  ['Grass (view)', [['grassDensity', 0, 60, 1, 'blades/m² near', 'v'], ['grassHeight', 0.3, 2.5, 0.05, '×', 'v'], ['grassDist', 20, 160, 5, 'm', 'v'], ['wind', 0, 3, 0.05, '', 'v']]],
+  ['Atmosphere (view)', [['sunElev', 2, 85, 1, '°', 'v'], ['sunAzim', 0, 360, 1, '°', 'v'], ['fog', 0, 0.03, 0.0005, '', 'v'], ['exposure', 0.4, 2, 0.01, '', 'v']]],
+];
+let G = { ...DEFAULTS }, V = { ...VIEW_DEFAULTS };
+try {
+  const s = JSON.parse(localStorage.getItem('terrainlab.v2') || 'null');
+  if (s) { Object.assign(G, s.gen || {}); Object.assign(V, s.view || {}); }
+} catch (e) {}
+function persist() { try { localStorage.setItem('terrainlab.v2', JSON.stringify({ gen: G, view: V })); } catch (e) {} }
+
+for (const [k, L] of Object.entries(LAYOUTS)) $('layout').add(new Option(L.label, k));
+for (const [k, B] of Object.entries(BIOMES)) $('biome').add(new Option(B.label, k));
+const inputs = {};
+function fmt(v, step) { return step >= 1 ? String(Math.round(v)) : step >= 0.1 ? v.toFixed(1) : step >= 0.01 ? v.toFixed(2) : v.toFixed(4); }
+for (const [title, rows] of SPEC) {
+  const h = document.createElement('h2'); h.textContent = title; $('params').appendChild(h);
+  for (const r of rows) {
+    const [key] = r; const isView = r[r.length - 1] === 'v'; const store = isView ? V : G;
+    const row = document.createElement('div'); row.className = 'row';
+    const lab = document.createElement('label'); lab.textContent = key.replace(/([A-Z])/g, ' $1').toLowerCase(); lab.title = r[4] && r[4] !== 'v' ? r[4] : '';
+    row.appendChild(lab);
+    if (r[1] === 'sel') {
+      const sel = document.createElement('select');
+      for (const o of r[2]) sel.add(new Option(o + ' ' + r[3], o));
+      sel.value = store[key];
+      sel.onchange = () => { store[key] = +sel.value; onParam(isView); };
+      row.appendChild(sel); inputs[key] = { set: v => sel.value = v };
+    } else {
+      const [, min, max, step, unit] = r;
+      const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min, max, step, value: store[key] });
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = fmt(store[key], step); if (unit && unit !== 'v') val.title = unit;
+      inp.oninput = () => { store[key] = +inp.value; val.textContent = fmt(+inp.value, step); if (isView) onParam(true, key); };
+      inp.onchange = () => { if (!isView) onParam(false); };
+      row.append(inp, val); inputs[key] = { set: v => { inp.value = v; val.textContent = fmt(v, step); } };
+    }
+    $('params').appendChild(row);
+  }
+}
+function syncUI() {
+  $('layout').value = G.layout; $('biome').value = G.biome; $('seed').value = G.seed;
+  for (const k in inputs) inputs[k].set(k in V ? V[k] : G[k]);
+}
+$('layout').onchange = () => {
+  G.layout = $('layout').value;
+  Object.assign(G, LAYOUTS[G.layout].p);
+  if (G.layout === 'urban') G.biome = 'urban'; else if (G.biome === 'urban') G.biome = 'temperate';
+  G.erosion = G.layout === 'urban' ? 0 : DEFAULTS.erosion;
+  syncUI(); onParam(false);
+};
+$('biome').onchange = () => { G.biome = $('biome').value; onParam(false); };
+$('seed').onchange = () => { G.seed = Math.max(0, Math.floor(+$('seed').value || 0)); onParam(false); };
+$('bSeed').onclick = () => { G.seed = Math.floor(Math.random() * 1e6); syncUI(); onParam(false); };
+syncUI();
+
+// ---------------------------------------------------------------- renderer, sky, lights
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: location.hash === '#autotest' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0xb9c8d4, V.fog);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 5000);
+camera.position.set(170, 120, 170);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.495;
+
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, ground: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3() }, sunCol: { value: new THREE.Color() } },
+  vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }`,
+  fragmentShader: `uniform vec3 top, horizon, ground, sunCol; uniform vec3 sunDir; varying vec3 vDir;
+    void main(){ vec3 d = normalize(vDir); float y = d.y;
+      vec3 c = y > 0.0 ? mix(horizon, top, pow(smoothstep(0.0, 0.55, y), 0.65)) : mix(horizon, ground, smoothstep(0.0, -0.25, y));
+      float s = max(dot(d, sunDir), 0.0);
+      c += sunCol * (pow(s, 1200.0) * 6.0 + pow(s, 40.0) * 0.25 + pow(s, 6.0) * 0.12 * (1.0 - smoothstep(0.0, 0.4, sunDir.y)));
+      gl_FragColor = vec4(c, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 16), skyMat);
+sky.renderOrder = -1; sky.frustumCulled = false; scene.add(sky);
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05;
+Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 500 });
+scene.add(sun, sun.target);
+const sunDir = new THREE.Vector3();
+
+function applyAtmosphere() {
+  const B = BIOMES[G.biome];
+  const el = THREE.MathUtils.degToRad(V.sunElev), az = THREE.MathUtils.degToRad(V.sunAzim);
+  sunDir.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+  const low = 1 - THREE.MathUtils.smoothstep(V.sunElev, 3, 25);
+  const fog = new THREE.Color(B.sky.fog).lerp(new THREE.Color('#e7b98a'), low * 0.55);
+  skyMat.uniforms.horizon.value.copy(fog);
+  skyMat.uniforms.top.value.set(B.sky.hemiSky).lerp(new THREE.Color('#5b86c2'), 0.55).lerp(new THREE.Color('#6d7aa0'), low * 0.4);
+  skyMat.uniforms.ground.value.copy(fog).multiplyScalar(0.8);
+  skyMat.uniforms.sunDir.value.copy(sunDir);
+  const sc = new THREE.Color(B.sky.sun).lerp(new THREE.Color('#ffb070'), low * 0.8);
+  skyMat.uniforms.sunCol.value.copy(sc);
+  scene.fog.color.copy(fog); scene.fog.density = V.fog;
+  hemi.color.set(B.sky.hemiSky); hemi.groundColor.set(B.sky.hemiGround);
+  hemi.intensity = 0.8 + 0.8 * THREE.MathUtils.smoothstep(V.sunElev, 0, 40);
+  sun.color.copy(sc); sun.intensity = 0.4 + 2.4 * THREE.MathUtils.smoothstep(V.sunElev, 0, 30);
+  renderer.toneMappingExposure = V.exposure;
+}
+
+// ---------------------------------------------------------------- ground material (splat + triplanar rock + height blend)
+const texCache = new Map();
+function layerTex(L) {
+  const key = L.kind + L.c.join();
+  if (!texCache.has(key)) {
+    const t = new THREE.CanvasTexture(makeLayerCanvas(L.kind, L.c, 512));
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    texCache.set(key, t);
+  }
+  return texCache.get(key);
+}
+const groundU = {
+  tL0: { value: null }, tL1: { value: null }, tL2: { value: null }, tL3: { value: null },
+  uTile: { value: new THREE.Vector4(4, 3, 6, 3) }, uMode: { value: 0 }, uMaxCos: { value: Math.cos(Math.PI / 4) },
+  uContour: { value: 2 }, uHRange: { value: new THREE.Vector2(0, 30) }, uWater: { value: -1e4 },
+};
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.94, metalness: 0 });
+groundMat.onBeforeCompile = sh => {
+  Object.assign(sh.uniforms, groundU);
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', `#include <common>
+      attribute vec4 splat; attribute float cavity; varying vec4 vSplat; varying float vCav; varying vec3 vWP; varying vec3 vWN;`)
+    .replace('#include <fog_vertex>', `#include <fog_vertex>
+      vSplat = splat; vCav = cavity; vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);`);
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+      uniform sampler2D tL0, tL1, tL2, tL3; uniform vec4 uTile; uniform int uMode; uniform float uMaxCos, uContour, uWater; uniform vec2 uHRange;
+      varying vec4 vSplat; varying float vCav; varying vec3 vWP; varying vec3 vWN;`)
+    .replace('#include <map_fragment>', `
+      vec3 an = pow(abs(vWN), vec3(6.0)); an /= (an.x + an.y + an.z);
+      vec3 c0 = texture2D(tL0, vWP.xz / uTile.x).rgb;
+      vec3 c1 = texture2D(tL1, vWP.xz / uTile.y).rgb;
+      vec3 c2 = texture2D(tL2, vWP.zy / uTile.z).rgb * an.x + texture2D(tL2, vWP.xz / uTile.z).rgb * an.y + texture2D(tL2, vWP.xy / uTile.z).rgb * an.z;
+      vec3 c3 = texture2D(tL3, vWP.xz / uTile.w).rgb;
+      // height-aware blend: brighter texels (stones, blade tips) poke through the neighbouring layer
+      vec4 hgt = vec4(dot(c0, vec3(0.33)), dot(c1, vec3(0.33)), dot(c2, vec3(0.33)), dot(c3, vec3(0.33)));
+      vec4 hw = vSplat + hgt * 0.45 * step(0.02, vSplat);
+      float mx = max(max(hw.x, hw.y), max(hw.z, hw.w)) - 0.18;
+      vec4 b = max(hw - mx, 0.0); b /= max(dot(b, vec4(1.0)), 1e-4);
+      // macro variation breaks visible tiling at distance
+      float macro = texture2D(tL1, vWP.xz / 113.0).g * 0.55 + texture2D(tL0, vWP.xz / 41.0).g * 0.45;
+      vec3 col = (c0 * b.x + c1 * b.y + c2 * b.z + c3 * b.w) * mix(0.78, 1.18, macro);
+      col *= mix(0.68, 1.06, smoothstep(0.35, 0.95, vCav));
+      if (uWater > -1e3) col *= mix(0.55, 1.0, smoothstep(uWater - 1.5, uWater + 0.2, vWP.y));
+      if (uMode == 1) {
+        float ny = normalize(vWN).y;
+        col = ny >= 0.866 ? vec3(0.25, 0.6, 0.25) : ny >= uMaxCos ? vec3(0.85, 0.7, 0.15) : vec3(0.75, 0.15, 0.12);
+        col *= 0.6 + 0.4 * dot(c0, vec3(0.33));
+      } else if (uMode == 2) {
+        float t = clamp((vWP.y - uHRange.x) / (uHRange.y - uHRange.x), 0.0, 1.0);
+        col = mix(mix(vec3(0.1, 0.25, 0.45), vec3(0.3, 0.6, 0.3), smoothstep(0.0, 0.35, t)), mix(vec3(0.8, 0.7, 0.4), vec3(0.95), smoothstep(0.65, 1.0, t)), smoothstep(0.3, 0.7, t));
+        float f = vWP.y / uContour; float w = fwidth(f);
+        float line = 1.0 - smoothstep(0.0, w * 1.2, abs(fract(f - 0.5) - 0.5));
+        float major = 1.0 - smoothstep(0.0, w * 1.6, abs(fract(f / 5.0 - 0.5) - 0.5) * 5.0);
+        col *= 1.0 - 0.45 * line - 0.35 * major;
+      } else if (uMode == 3) {
+        col = b.x * vec3(0.3, 0.65, 0.2) + b.y * vec3(0.6, 0.4, 0.2) + b.z * vec3(0.5) + b.w * vec3(0.95, 0.9, 0.8);
+      }
+      diffuseColor.rgb *= col;`);
+};
+
+// ---------------------------------------------------------------- scatter geometry kits (low poly, vertex colors)
+const nz = makeNoise(99);
+function colorize(g, hex) {
+  g = g.index ? g.toNonIndexed() : g; g.deleteAttribute('uv');
+  const c = new THREE.Color(hex), n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
+}
+function lumpy(g, amt, k = 1.3) {
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const f = 1 + amt * (nz(x * k + z * 0.7, y * k) * 0.7 + nz(z * k * 2.1, x * k * 2.1 + y) * 0.3);
+    p.setXYZ(i, x * f, y * f, z * f);
+  }
+  return g;
+}
+const at = (g, x, y, z, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) => { g.scale(sx, sy, sz); g.rotateX(rx); g.rotateZ(rz); g.translate(x, y, z); return g; };
+function kitGeometry(type, B) {
+  const rockC = B.layers[2].c[0], leaf = B.grass.color[0];
+  const trunk = '#5a4330';
+  const parts = [];
+  switch (type) {
+    case 'pine':
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.12, 0.2, 2.2, 6), 0, 1.1, 0), trunk));
+      [[1.7, 2.4, 1.6], [1.35, 2.1, 2.8], [0.95, 1.8, 3.9], [0.55, 1.3, 4.8]].forEach(([r, h, y], i) =>
+        parts.push(colorize(lumpy(at(new THREE.ConeGeometry(r, h, 7, 1), 0, y, 0), 0.08), i % 2 ? '#2c4a2a' : '#26422a')));
+      break;
+    case 'broadleaf': case 'autumn': {
+      const cc = type === 'autumn' ? ['#b85a24', '#c98a2e', '#9c3f22'] : [leaf, '#4d6d2a', '#3f5f25'];
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.16, 0.26, 3, 6), 0, 1.5, 0), trunk));
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.06, 0.1, 1.4, 5), 0.45, 2.7, 0, 0, -0.7), trunk));
+      [[1.7, 0, 3.9, 0], [1.3, 0.9, 3.4, 0.4], [1.25, -0.8, 3.6, -0.5], [1.1, 0.1, 4.8, 0.2]].forEach(([r, x, y, z], i) =>
+        parts.push(colorize(lumpy(at(new THREE.IcosahedronGeometry(r, 1), x, y, z, 0, 0, 1, 0.85, 1), 0.18), cc[i % 3])));
+      break;
+    }
+    case 'dead':
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.1, 0.24, 4.2, 6), 0, 2.1, 0), '#5e5246'));
+      [[0.5, 2.6, 0, 0, -0.8], [-0.45, 3.1, 0.1, 0.2, 0.9], [0.1, 3.7, -0.4, -0.7, 0.2], [0.3, 1.8, 0.3, 0.6, -0.6]].forEach(([x, y, z, rx, rz]) =>
+        parts.push(colorize(at(new THREE.CylinderGeometry(0.03, 0.08, 1.6, 4), x, y, z, rx, rz), '#655a4c')));
+      break;
+    case 'cactus':
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.28, 0.32, 3.2, 8), 0, 1.6, 0), '#4f7a3c'));
+      parts.push(colorize(at(new THREE.SphereGeometry(0.28, 8, 4, 0, 6.3, 0, 1.6), 0, 3.2, 0), '#4f7a3c'));
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.16, 0.16, 0.6, 6), 0.45, 1.5, 0, 0, Math.PI / 2), '#4a7338'));
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.16, 0.18, 1.1, 6), 0.72, 2.0, 0), '#4a7338'));
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.14, 0.14, 0.5, 6), -0.4, 2.0, 0, 0, Math.PI / 2), '#4a7338'));
+      parts.push(colorize(at(new THREE.CylinderGeometry(0.14, 0.16, 0.8, 6), -0.62, 2.35, 0), '#4a7338'));
+      break;
+    case 'shrub':
+      [[0.75, 0, 0.45, 0], [0.55, 0.5, 0.35, 0.2], [0.5, -0.4, 0.35, -0.3]].forEach(([r, x, y, z], i) =>
+        parts.push(colorize(lumpy(at(new THREE.IcosahedronGeometry(r, 1), x, y, z, 0, 0, 1, 0.75, 1), 0.2), i ? '#41602a' : leaf)));
+      break;
+    case 'deadshrub':
+      for (let i = 0; i < 9; i++) { const a = i * 2.4, t = 0.5 + (i % 3) * 0.25; parts.push(colorize(at(new THREE.CylinderGeometry(0.015, 0.04, 1.0 * t, 3), Math.cos(a) * 0.2, 0.4 * t, Math.sin(a) * 0.2, Math.sin(a) * 0.7, -Math.cos(a) * 0.7), '#8b7352')); }
+      break;
+    case 'rock':
+      parts.push(colorize(lumpy(at(new THREE.IcosahedronGeometry(0.6, 1), 0, 0.15, 0, 0, 0, 1.2, 0.6, 1), 0.28, 2), rockC)); break;
+    case 'boulder':
+      parts.push(colorize(lumpy(at(new THREE.IcosahedronGeometry(1.3, 2), 0, 0.4, 0, 0, 0, 1.25, 0.8, 1), 0.22, 0.9), rockC)); break;
+  }
+  const g = mergeGeometries(parts); g.computeVertexNormals(); return g;
+}
+// collision proxies: trunks as cylinders, rocks as their own shape; shrubs and grass are not solid
+function kitCollider(type, src) {
+  switch (type) {
+    case 'pine': return new THREE.CylinderGeometry(0.22, 0.22, 3, 6).translate(0, 1.5, 0);
+    case 'broadleaf': case 'autumn': return new THREE.CylinderGeometry(0.28, 0.28, 3.2, 6).translate(0, 1.6, 0);
+    case 'dead': return new THREE.CylinderGeometry(0.24, 0.24, 4, 6).translate(0, 2, 0);
+    case 'cactus': return new THREE.CylinderGeometry(0.32, 0.32, 3.2, 6).translate(0, 1.6, 0);
+    case 'rock': case 'boulder': return src.clone();
+    default: return null;
+  }
+}
+
+// ---------------------------------------------------------------- world build
+let T = null; // current terrain data
+const world = new THREE.Group(); scene.add(world);
+let terrainMesh = null, water = null, scatterGroup = new THREE.Group(), buildings = null;
+world.add(scatterGroup);
+let colliderDirty = true, bvh = null;
+const waterNormal = new THREE.CanvasTexture(makeWaterNormalCanvas());
+waterNormal.wrapS = waterNormal.wrapT = THREE.RepeatWrapping;
+
+function buildTerrainGeometry(T) {
+  const { res, size, cell, heights: H, normals, splat, aux } = T, half = size / 2, N = res * res;
+  const pos = new Float32Array(N * 3);
+  for (let j = 0, k = 0; j < res; j++) for (let i = 0; i < res; i++, k++) { pos[k * 3] = -half + i * cell; pos[k * 3 + 1] = H[k]; pos[k * 3 + 2] = -half + j * cell; }
+  const idx = new Uint32Array((res - 1) * (res - 1) * 6);
+  let p = 0;
+  for (let j = 0; j < res - 1; j++) for (let i = 0; i < res - 1; i++) {
+    const a = j * res + i, b = a + res, c = a + 1, d = b + 1;
+    idx[p++] = a; idx[p++] = b; idx[p++] = c; idx[p++] = c; idx[p++] = b; idx[p++] = d;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  g.setAttribute('splat', new THREE.BufferAttribute(splat, 4));
+  g.setAttribute('cavity', new THREE.BufferAttribute(aux, 1));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeBoundingBox(); g.computeBoundingSphere();
+  return g;
+}
+
+const kitMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+const TINTS = {
+  default: [new THREE.Color(0.82, 0.92, 0.8), new THREE.Color(1.15, 1.08, 0.86)],
+  autumn: [new THREE.Color(1.15, 0.7, 0.75), new THREE.Color(1.1, 1.25, 0.8)],
+  rock: [new THREE.Color(0.8, 0.8, 0.8), new THREE.Color(1.15, 1.1, 1.05)],
+};
+let scatterMeshes = [];
+function buildScatter() {
+  for (const m of scatterMeshes) { scatterGroup.remove(m); m.geometry.dispose(); }
+  scatterMeshes = [];
+  const byType = {};
+  for (const s of T.scatter) (byType[s.type] ||= []).push(s);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nrm = new THREE.Vector3(), qy = new THREE.Quaternion(), c = new THREE.Color();
+  for (const [type, list] of Object.entries(byType)) {
+    const geo = kitGeometry(type, T.biome);
+    const mesh = new THREE.InstancedMesh(geo, kitMat, list.length);
+    mesh.userData.type = type;
+    const rocky = type === 'rock' || type === 'boulder';
+    const tint = rocky ? TINTS.rock : type === 'autumn' ? TINTS.autumn : TINTS.default;
+    list.forEach((s, i) => {
+      qy.setFromAxisAngle(up, s.rot);
+      if (rocky) { nrm.set(s.nx, s.ny, s.nz); q.setFromUnitVectors(up, nrm).multiply(qy); } else q.copy(qy);
+      const sink = rocky ? 0.25 * s.scale : 0.05;
+      m4.compose(new THREE.Vector3(s.x, s.y - sink, s.z), q, new THREE.Vector3(s.scale, s.scale * (rocky ? 1 : 0.9 + s.tint * 0.2), s.scale));
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, c.copy(tint[0]).lerp(tint[1], s.tint));
+    });
+    mesh.castShadow = !['deadshrub'].includes(type); mesh.receiveShadow = true;
+    mesh.computeBoundingSphere();
+    scatterGroup.add(mesh); scatterMeshes.push(mesh);
+  }
+  // urban placeholder buildings (stand-ins for the Facade builder)
+  if (buildings) { scatterGroup.remove(buildings); buildings.geometry.dispose(); buildings = null; }
+  if (T.lots.length) {
+    const r = mulberry32(G.seed + 9), boxes = [];
+    for (const L of T.lots) {
+      if (L.park) continue;
+      const inner = L.w - 4, n = 1 + Math.floor(r() * 3), w = inner / n;
+      for (let b = 0; b < n; b++) {
+        const depth = inner * (0.55 + r() * 0.4), h = 6 + Math.pow(r(), 2) * 34;
+        boxes.push({ x: L.cx - inner / 2 + w * (b + 0.5), z: L.cz - inner / 2 + depth / 2, w: w - 1, d: depth, h, y: L.pad, t: r() });
+      }
+    }
+    const geo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+    buildings = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.85 }), boxes.length);
+    const cols = ['#a29b8f', '#8d8a86', '#b4a48c', '#7e7468', '#9aa1a6'];
+    boxes.forEach((B, i) => {
+      m4.compose(new THREE.Vector3(B.x, B.y - 0.6, B.z), new THREE.Quaternion(), new THREE.Vector3(B.w, B.h + 0.6, B.d));
+      buildings.setMatrixAt(i, m4); buildings.setColorAt(i, c.set(cols[Math.floor(B.t * cols.length)]));
+    });
+    buildings.userData.boxes = boxes;
+    buildings.castShadow = buildings.receiveShadow = true;
+    scatterGroup.add(buildings);
+  }
+}
+
+// ---------------------------------------------------------------- grass: lazy instanced chunks around the camera
+const CHUNK = 16;
+const bladeGeo = (() => {
+  const segs = 3, w = 0.06, pos = [], col = [], uv = [], nrm = [], idx = [];
+  for (let s = 0; s <= segs; s++) {
+    const t = s / segs, y = t, half = w * (1 - t) * 0.5 + 0.002, bend = t * t * 0.12;
+    pos.push(-half, y, bend, half, y, bend);
+    const g = 0.55 + 0.45 * t; col.push(g, g, g, g, g, g); uv.push(0, t, 1, t);
+    nrm.push(0, 1, 0.2, 0, 1, 0.2);
+    if (s < segs) { const a = s * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setIndex(idx); return g;
+})();
+const grassU = { uTime: { value: 0 }, uWind: { value: 1 }, uFar: { value: 70 } };
+const grassMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85 });
+grassMat.onBeforeCompile = sh => {
+  Object.assign(sh.uniforms, grassU);
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nuniform float uTime, uWind, uFar;')
+    .replace('#include <project_vertex>', `
+      vec4 wpos = instanceMatrix * vec4(transformed, 1.0);
+      vec3 ip = instanceMatrix[3].xyz;
+      float dist = distance(ip.xz, cameraPosition.xz);
+      float fade = 1.0 - smoothstep(uFar * 0.65, uFar, dist);
+      wpos.xyz = ip + (wpos.xyz - ip) * fade;
+      float h = uv.y, bend = h * h;
+      float gust = sin(uTime * 0.9 + ip.x * 0.045 + ip.z * 0.03) * 0.5 + 0.5;
+      wpos.x += (sin(uTime * 2.3 + ip.x * 0.7 + ip.z * 0.4) * 0.05 + gust * gust * 0.22) * bend * uWind;
+      wpos.z += (cos(uTime * 1.9 + ip.z * 0.6 + ip.x * 0.3) * 0.05 + gust * 0.06) * bend * uWind;
+      vec4 mvPosition = viewMatrix * wpos;
+      gl_Position = projectionMatrix * mvPosition;`)
+    .replace('#include <worldpos_vertex>', 'vec4 worldPosition = wpos;');
+  // blades are double sided; keep the up-facing normal on both sides so back faces do not render black
+  sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>',
+    THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+};
+const grassChunks = new Map();
+const grassGroup = new THREE.Group(); world.add(grassGroup);
+function clearGrass() { for (const e of grassChunks.values()) if (e.mesh) { grassGroup.remove(e.mesh); e.mesh.dispose(); } grassChunks.clear(); }
+function sampleSplat(x, z, ch) {
+  const half = T.size / 2, res = T.res;
+  const fx = Math.min(res - 1.001, Math.max(0, (x + half) / T.cell)), fz = Math.min(res - 1.001, Math.max(0, (z + half) / T.cell));
+  const i = fx | 0, j = fz | 0, a = fx - i, b = fz - j, k = j * res + i, S = T.splat;
+  return S[k * 4 + ch] * (1 - a) * (1 - b) + S[(k + 1) * 4 + ch] * a * (1 - b) + S[(k + res) * 4 + ch] * (1 - a) * b + S[(k + res + 1) * 4 + ch] * a * b;
+}
+function sampleArr(arr, x, z) {
+  const half = T.size / 2, res = T.res;
+  const fx = Math.min(res - 1.001, Math.max(0, (x + half) / T.cell)), fz = Math.min(res - 1.001, Math.max(0, (z + half) / T.cell));
+  const i = fx | 0, j = fz | 0, a = fx - i, b = fz - j, k = j * res + i;
+  return arr[k] * (1 - a) * (1 - b) + arr[k + 1] * a * (1 - b) + arr[k + res] * (1 - a) * b + arr[k + res + 1] * a * b;
+}
+// LOD: near chunks get full density; farther chunks keep a fixed subset of the same blades, drawn wider
+const GRASS_LOD = [[0, 1, 1], [22, 0.35, 1.5], [45, 0.14, 2.3]]; // [from distance, density fraction, width scale]
+function lodFor(d) { let l = 0; for (let i = 0; i < GRASS_LOD.length; i++) if (d >= GRASS_LOD[i][0]) l = i; return l; }
+function makeGrassChunk(ci, cj, lod = 0) {
+  const B = T.biome, amount = B.grass.amount * V.grassDensity;
+  if (amount <= 0) return null;
+  const r = mulberry32((ci * 73856093) ^ (cj * 19349663) ^ G.seed);
+  const target = Math.round(CHUNK * CHUNK * amount), [, frac, wscale] = GRASS_LOD[lod];
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
+  const c0 = new THREE.Color(B.grass.color[0]), c1 = new THREE.Color(B.grass.color[1]);
+  const mats = [], cols = [];
+  const half = T.size / 2;
+  for (let n = 0; n < target; n++) {
+    const x = (ci + r()) * CHUNK, z = (cj + r()) * CHUNK;
+    const pick = r();
+    if (Math.abs(x) > half - 0.5 || Math.abs(z) > half - 0.5) continue;
+    const w0 = sampleSplat(x, z, 0) + (G.biome === 'autumn' ? sampleSplat(x, z, 3) * 0.8 : 0);
+    if (r() > w0 * w0 * 1.3) continue;
+    if (sampleArr(T.slope, x, z) > 36) continue;
+    const y = heightAt(T, x, z);
+    if (T.water !== null && y < T.water + 0.15) continue;
+    const hs = B.grass.height * V.grassHeight * (0.55 + r() * 0.8) * (0.6 + 0.4 * w0);
+    e.set((r() - 0.5) * 0.5, r() * Math.PI * 2, (r() - 0.5) * 0.5); q.setFromEuler(e);
+    const sw = (0.8 + r() * 0.6) * wscale, tint = Math.pow(r(), 1.4);
+    if (pick > frac) continue; // same random stream for every LOD, so far chunks are a subset of near ones
+    s.set(sw, hs, 1); p.set(x, y - 0.02, z);
+    mats.push(m4.compose(p, q, s).clone()); cols.push(c.copy(c0).lerp(c1, tint).clone());
+  }
+  if (!mats.length) return null;
+  const mesh = new THREE.InstancedMesh(bladeGeo, grassMat, mats.length);
+  mats.forEach((m, i) => { mesh.setMatrixAt(i, m); mesh.setColorAt(i, cols[i]); });
+  mesh.receiveShadow = true; mesh.castShadow = false; mesh.userData.lod = lod;
+  mesh.computeBoundingSphere(); mesh.boundingSphere.radius += 2;
+  return mesh;
+}
+let grassDirty = true;
+function updateGrass(force) {
+  if (!T) return;
+  if (force || grassDirty) { clearGrass(); grassDirty = false; }
+  const cx = camera.position.x, cz = camera.position.z, R = V.grassDist, keep = R * 1.25;
+  // stop growing grass when the camera is far above the ground (orbit overview)
+  const ground = heightAt(T, cx, cz);
+  const tooHigh = camera.position.y - ground > R * 0.9;
+  for (const [key, e] of grassChunks) {
+    const [i, j] = key.split(',').map(Number);
+    const d = Math.hypot((i + 0.5) * CHUNK - cx, (j + 0.5) * CHUNK - cz);
+    if (tooHigh || d > keep || lodFor(d) !== e.lod) { if (e.mesh) { grassGroup.remove(e.mesh); e.mesh.dispose(); } grassChunks.delete(key); }
+  }
+  if (tooHigh) return;
+  let made = 0;
+  const i0 = Math.floor((cx - R) / CHUNK), i1 = Math.floor((cx + R) / CHUNK), j0 = Math.floor((cz - R) / CHUNK), j1 = Math.floor((cz + R) / CHUNK);
+  const want = [];
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const d = Math.hypot((i + 0.5) * CHUNK - cx, (j + 0.5) * CHUNK - cz);
+    if (d > R + CHUNK * 0.7) continue;
+    const key = i + ',' + j; if (grassChunks.has(key)) continue;
+    want.push([d, i, j, key]);
+  }
+  want.sort((a, b) => a[0] - b[0]);
+  for (const [d, i, j, key] of want) {
+    const lod = lodFor(d), m = makeGrassChunk(i, j, lod); grassChunks.set(key, { mesh: m, lod }); if (m) grassGroup.add(m);
+    if (++made >= 8) break; // spread the work across frames
+  }
+}
+
+// ---------------------------------------------------------------- regenerate
+let genStats = null;
+function regenerate() {
+  const t0 = performance.now();
+  T = generateTerrain(G);
+  const B = T.biome;
+  groundU.tL0.value = layerTex(B.layers[0]); groundU.tL1.value = layerTex(B.layers[1]);
+  groundU.tL2.value = layerTex(B.layers[2]); groundU.tL3.value = layerTex(B.layers[3]);
+  groundU.uTile.value.set(B.layers[0].tile, B.layers[1].tile, B.layers[2].tile, B.layers[3].tile);
+  groundU.uMaxCos.value = Math.cos(THREE.MathUtils.degToRad(G.maxSlope));
+  groundU.uHRange.value.set(T.stats.hmin, T.stats.hmax);
+  groundU.uContour.value = Math.max(1, Math.round(G.heightScale / 20));
+  groundU.uWater.value = T.water ?? -1e4;
+  if (terrainMesh) { world.remove(terrainMesh); terrainMesh.geometry.dispose(); }
+  terrainMesh = new THREE.Mesh(buildTerrainGeometry(T), groundMat);
+  terrainMesh.receiveShadow = true; terrainMesh.castShadow = true;
+  world.add(terrainMesh);
+  if (water) { world.remove(water); water.geometry.dispose(); water = null; }
+  if (T.water !== null) {
+    water = new THREE.Mesh(new THREE.PlaneGeometry(T.size * 6, T.size * 6).rotateX(-Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0x24505e, roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.82, normalMap: waterNormal, normalScale: new THREE.Vector2(0.35, 0.35) }));
+    water.material.normalMap.repeat.set(T.size * 6 / 18, T.size * 6 / 18);
+    water.position.y = T.water; water.receiveShadow = true;
+    world.add(water);
+  }
+  buildScatter();
+  scatterGroup.visible = $('tScatter').classList.contains('on');
+  grassDirty = true; colliderDirty = true;
+  applyAtmosphere();
+  if (walking) { buildCollider(); spawn = findSpawn(); respawn(); }
+  genStats = { gen: T.stats.ms, total: performance.now() - t0 };
+  persist();
+}
+let pending = 0;
+function onParam(viewOnly, key) {
+  persist();
+  if (viewOnly) { applyAtmosphere(); grassU.uWind.value = V.wind; grassU.uFar.value = V.grassDist; if (key === 'grassDensity' || key === 'grassHeight') grassDirty = true; return; }
+  $('busy').classList.add('show');
+  clearTimeout(pending);
+  pending = setTimeout(() => { requestAnimationFrame(() => setTimeout(() => { regenerate(); $('busy').classList.remove('show'); }, 0)); }, 30);
+}
+
+// ---------------------------------------------------------------- view toggles
+$('mode').onchange = () => { groundU.uMode.value = +$('mode').value; };
+$('tWire').onclick = () => { groundMat.wireframe = $('tWire').classList.toggle('on'); };
+$('tShadow').onclick = () => { renderer.shadowMap.enabled = $('tShadow').classList.toggle('on'); groundMat.needsUpdate = kitMat.needsUpdate = grassMat.needsUpdate = true; if (buildings) buildings.material.needsUpdate = true; };
+$('tScatter').onclick = () => { scatterGroup.visible = $('tScatter').classList.toggle('on'); };
+
+// ---------------------------------------------------------------- walk test (movement sim on a BVH of terrain + solid scatter)
+function buildCollider() {
+  const parts = [];
+  const tg = terrainMesh.geometry;
+  const base = new THREE.BufferGeometry(); base.setAttribute('position', tg.attributes.position); base.setIndex(tg.index);
+  parts.push(base.toNonIndexed());
+  const m4 = new THREE.Matrix4();
+  for (const mesh of scatterMeshes) {
+    const proxy = kitCollider(mesh.userData.type, mesh.geometry); if (!proxy) continue;
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', proxy.attributes.position); if (proxy.index) pg.setIndex(proxy.index);
+    const flat = pg.index ? pg.toNonIndexed() : pg;
+    for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m4); parts.push(flat.clone().applyMatrix4(m4)); }
+  }
+  if (buildings) for (const B of buildings.userData.boxes) parts.push(new THREE.BoxGeometry(B.w, B.h + 0.6, B.d).toNonIndexed().deleteAttribute('normal').deleteAttribute('uv').translate(B.x, B.y - 0.6 + (B.h + 0.6) / 2, B.z));
+  // edge walls so the walk test stays on the map
+  const s = T.size, wallH = T.stats.hmax - T.stats.hmin + 60, cy = (T.stats.hmax + T.stats.hmin) / 2;
+  for (const [x, z, w, d] of [[0, s / 2 + 0.5, s + 2, 1], [0, -s / 2 - 0.5, s + 2, 1], [s / 2 + 0.5, 0, 1, s + 2], [-s / 2 - 0.5, 0, 1, s + 2]])
+    parts.push(new THREE.BoxGeometry(w, wallH, d).toNonIndexed().deleteAttribute('normal').deleteAttribute('uv').translate(x, cy, z));
+  const clean = parts.map(g => { const n = new THREE.BufferGeometry(); n.setAttribute('position', g.attributes.position); return n; });
+  const merged = mergeGeometries(clean, false);
+  bvh = new MeshBVH(merged);
+  colliderDirty = false;
+}
+function findSpawn() {
+  const r = mulberry32(G.seed + 3), cosMax = Math.cos(THREE.MathUtils.degToRad(20));
+  for (let n = 0; n < 4000; n++) {
+    const rad = (n / 4000) * T.size * 0.45, a = r() * Math.PI * 2;
+    const x = Math.cos(a) * rad, z = Math.sin(a) * rad;
+    const y = heightAt(T, x, z);
+    if (T.water !== null && y < T.water + 0.3) continue;
+    if (Math.cos(THREE.MathUtils.degToRad(sampleArr(T.slope, x, z))) < cosMax) continue;
+    if (T.lots.length && sampleSplat(x, z, 1) < 0.5) continue; // urban: start on a road
+    return new THREE.Vector3(x, y + 0.6, z);
+  }
+  return new THREE.Vector3(0, heightAt(T, 0, 0) + 2, 0);
+}
+const MP = { ...DEFAULT_PARAMS };
+try { const mv = JSON.parse(localStorage.getItem('movelab.v2') || 'null'); if (mv && mv.sim) Object.assign(MP, mv.sim); } catch (e) {}
+let walking = false, locked = false, player = null, spawn = null, acc = 0, simTime = 0;
+const prev = { pos: new THREE.Vector3(), height: 1.8 };
+const look = { yaw: 0, pitch: 0 }, keys = {}, cmd = makeCommand();
+let jumpLatch = false;
+const orbitSave = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+function enterWalk() {
+  if (!T) return;
+  if (colliderDirty) { $('busy').textContent = 'Building collision…'; $('busy').classList.add('show'); buildCollider(); $('busy').classList.remove('show'); $('busy').textContent = 'Generating…'; }
+  orbitSave.pos.copy(camera.position); orbitSave.target.copy(controls.target);
+  walking = true; controls.enabled = false;
+  spawn = findSpawn(); respawn();
+  camera.fov = 75; camera.near = 0.05; camera.updateProjectionMatrix();
+  $('bWalk').textContent = 'Back to orbit view'; $('help').style.display = 'none';
+  if (location.hash !== '#autotest') requestLock();
+}
+function exitWalk() {
+  walking = false; controls.enabled = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  camera.fov = 55; camera.near = 0.1; camera.updateProjectionMatrix();
+  camera.position.copy(orbitSave.pos); controls.target.copy(orbitSave.target);
+  $('bWalk').textContent = 'Walk test'; $('help').style.display = ''; $('resume').style.display = 'none'; $('cross').style.display = 'none';
+}
+function respawn() { player = makePlayer(spawn); player.height = MP.standHeight; prev.pos.copy(player.pos); prev.height = player.height; look.yaw = Math.atan2(spawn.x, spawn.z); look.pitch = 0; }
+function requestLock() { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+$('bWalk').onclick = () => walking ? exitWalk() : enterWalk();
+$('resume').onclick = requestLock;
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  if (!walking) return;
+  $('resume').style.display = locked ? 'none' : 'flex'; $('cross').style.display = locked ? 'block' : 'none';
+  if (!locked) for (const k in keys) keys[k] = false;
+});
+document.addEventListener('mousemove', e => {
+  if (!locked || !walking) return;
+  const s = 0.0022;
+  look.yaw -= e.movementX * s; look.pitch = Math.max(-1.55, Math.min(1.55, look.pitch - e.movementY * s));
+});
+addEventListener('keydown', e => {
+  if (!walking || !locked) return;
+  if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC'].includes(e.code)) e.preventDefault();
+  if (!keys[e.code]) { if (e.code === 'Space') jumpLatch = true; if (e.code === 'KeyR') respawn(); }
+  keys[e.code] = true;
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+function sampleCommand() {
+  cmd.moveZ = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0); cmd.moveX = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  cmd.sprint = !!(keys.ShiftLeft || keys.ShiftRight); cmd.jump = !!keys.Space || jumpLatch; cmd.crouch = !!keys.KeyC;
+  cmd.yaw = look.yaw; cmd.pitch = look.pitch; return cmd;
+}
+const LAYER_NAMES = () => T.biome.layers.map(l => l.kind);
+
+// ---------------------------------------------------------------- exports
+// Saves go through the artifact viewer's downloads capability when it exists; plain link otherwise (local file).
+const dlCap = (window.claude && window.claude.use) ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+// minimal store-only zip, for formats the viewer will not save directly (.r16, .glb)
+function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), data = f.data instanceof Uint8Array ? f.data : typeof f.data === 'string' ? enc.encode(f.data) : new Uint8Array(f.data);
+    const crc = crc32(data), h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const csize = central.reduce((a, b) => a + b.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)]);
+}
+async function download(name, data, type) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type });
+  const cap = await dlCap;
+  if (cap) {
+    try { await cap.save({ filename: name, data: blob }); } catch (e) { if (e && e.code !== 'declined') flash('Save failed: ' + (e.message || e.code)); }
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function flash(msg) { $('stat').textContent = msg; }
+function settingsJSON() {
+  return JSON.stringify({ generator: 'terrainlab/terrain.js v1', params: G, view: V, heightRange: { min: T.stats.hmin, max: T.stats.hmax }, size: T.size, res: T.res }, null, 2);
+}
+$('eJson').onclick = () => download(`terrain-${G.layout}-${G.seed}.json`, settingsJSON(), 'application/json');
+$('eCopy').onclick = async () => { try { await navigator.clipboard.writeText(settingsJSON()); $('eCopy').textContent = 'Copied'; } catch (e) { $('eCopy').textContent = 'Copy blocked'; } setTimeout(() => $('eCopy').textContent = 'Copy settings', 1500); };
+$('eR16').onclick = () => {
+  const { heights: H, stats } = T, out = new Uint16Array(H.length), span = stats.hmax - stats.hmin || 1;
+  for (let k = 0; k < H.length; k++) out[k] = Math.round((H[k] - stats.hmin) / span * 65535);
+  download(`terrain-${G.seed}-${T.res}x${T.res}-r16.zip`, makeZip([{ name: `terrain-${G.seed}-${T.res}x${T.res}.r16`, data: new Uint8Array(out.buffer) }, { name: 'settings.json', data: settingsJSON() }]));
+};
+function gridPNG(name, fill) {
+  const c = document.createElement('canvas'); c.width = c.height = T.res;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(T.res, T.res);
+  for (let k = 0; k < T.res * T.res; k++) fill(k, img.data, k * 4);
+  ctx.putImageData(img, 0, 0); c.toBlob(b => download(name, b));
+}
+$('ePng').onclick = () => { const span = T.stats.hmax - T.stats.hmin || 1; gridPNG(`terrain-${G.seed}-height.png`, (k, d, p) => { const v = (T.heights[k] - T.stats.hmin) / span * 255; d[p] = d[p + 1] = d[p + 2] = v; d[p + 3] = 255; }); };
+$('eSplat').onclick = () => gridPNG(`terrain-${G.seed}-splat.png`, (k, d, p) => { d[p] = T.splat[k * 4] * 255; d[p + 1] = T.splat[k * 4 + 1] * 255; d[p + 2] = T.splat[k * 4 + 2] * 255; d[p + 3] = 255 - T.splat[k * 4 + 3] * 255 * 0.999; });
+$('eGlb').onclick = () => {
+  // bake the four layer colours into vertex colours, since glTF has no splat shader
+  const g = terrainMesh.geometry.clone(), n = g.attributes.position.count, col = new Float32Array(n * 3);
+  const lc = T.biome.layers.map(l => new THREE.Color(l.c[0]));
+  for (let k = 0; k < n; k++) {
+    const cv = 0.6 + 0.45 * T.aux[k];
+    for (let ch = 0; ch < 3; ch++) col[k * 3 + ch] = (lc[0].toArray()[ch] * T.splat[k * 4] + lc[1].toArray()[ch] * T.splat[k * 4 + 1] + lc[2].toArray()[ch] * T.splat[k * 4 + 2] + lc[3].toArray()[ch] * T.splat[k * 4 + 3]) * cv;
+  }
+  g.deleteAttribute('splat'); g.deleteAttribute('cavity'); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const root = new THREE.Group(); root.name = `terrain-${G.layout}-${G.seed}`;
+  root.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })));
+  for (const m of scatterMeshes) root.add(m.clone());
+  if (buildings) root.add(buildings.clone());
+  if (water) root.add(water.clone());
+  new GLTFExporter().parse(root, glb => download(`terrain-${G.layout}-${G.seed}-glb.zip`, makeZip([{ name: `terrain-${G.layout}-${G.seed}.glb`, data: new Uint8Array(glb) }, { name: 'settings.json', data: settingsJSON() }])), err => flash('GLB export failed: ' + err.message), { binary: true });
+};
+
+// ---------------------------------------------------------------- loop
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+regenerate();
+controls.target.set(0, (T.stats.hmin + T.stats.hmax) * 0.3, 0);
+camera.position.set(T.size * 0.62, T.stats.hmax + T.size * 0.35, T.size * 0.62);
+
+const clock = new THREE.Clock();
+let hudT = 0, frames = 0, fps = 0, fpsT = 0;
+const tgt = new THREE.Vector3();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  grassU.uTime.value += dt; grassU.uWind.value = V.wind; grassU.uFar.value = V.grassDist;
+  if (water) water.material.normalMap.offset.set(grassU.uTime.value * 0.01, grassU.uTime.value * 0.006);
+  if (walking && player) {
+    acc += dt; let steps = 0;
+    while (acc >= TICK && steps < 8) {
+      prev.pos.copy(player.pos); prev.height = player.height;
+      stepPlayer(player, sampleCommand(), MP, bvh, TICK); jumpLatch = false;
+      if (player.pos.y < T.stats.hmin - 30) respawn();
+      acc -= TICK; steps++; simTime += TICK;
+    }
+    if (steps === 8) acc = 0;
+    const a = acc / TICK;
+    const p = prev.pos.clone().lerp(player.pos, a), h = prev.height + (player.height - prev.height) * a;
+    camera.position.set(p.x, p.y + h - 0.12, p.z);
+    camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
+    tgt.copy(p);
+  } else { controls.update(); tgt.copy(controls.target); }
+  // fog density is tuned for eye level; thin it out as the orbit camera pulls back so the overview stays readable
+  scene.fog.density = walking ? V.fog : V.fog * THREE.MathUtils.clamp(60 / camera.position.distanceTo(controls.target), 0.12, 1);
+  // shadow box follows what you are looking at
+  sun.target.position.copy(tgt); sun.position.copy(tgt).addScaledVector(sunDir, 250); sun.target.updateMatrixWorld();
+  sky.position.copy(camera.position);
+  updateGrass(false);
+  renderer.render(scene, camera);
+  frames++; fpsT += dt; if (fpsT >= 0.5) { fps = frames / fpsT; frames = 0; fpsT = 0; }
+  hudT += dt; if (hudT > 0.15) { hudT = 0; hud(); }
+});
+function hud() {
+  if (!T) return;
+  const info = renderer.info.render;
+  let blades = 0; for (const e of grassChunks.values()) if (e.mesh) blades += e.mesh.count;
+  let line = `${LAYOUTS[G.layout].label} · ${BIOMES[G.biome].label} · seed ${G.seed}\n${T.size} m · ${T.res}² verts · height ${T.stats.hmin.toFixed(1)}–${T.stats.hmax.toFixed(1)} m\nwalkable ${(T.stats.walkable * 100).toFixed(0)}% (≤${G.maxSlope}°) · scatter ${T.stats.scatter} · grass ${blades.toLocaleString()}\ngen ${genStats.gen.toFixed(0)} ms · build ${(genStats.total - genStats.gen).toFixed(0)} ms · ${fps.toFixed(0)} fps · ${info.calls} calls · ${(info.triangles / 1000).toFixed(0)}k tris`;
+  if (walking && player) {
+    const x = player.pos.x, z = player.pos.z, w = [0, 1, 2, 3].map(ch => sampleSplat(x, z, ch)), top = w.indexOf(Math.max(...w));
+    const sp = Math.hypot(player.vel.x, player.vel.z);
+    line += `\nwalk: ${sp.toFixed(1)} m/s · slope ${sampleArr(T.slope, x, z).toFixed(0)}° · on ${LAYER_NAMES()[top]} · y ${player.pos.y.toFixed(1)}${player.sliding ? ' · sliding' : ''}`;
+  }
+  $('stat').textContent = line;
+}
+
+// ---------------------------------------------------------------- headless test hook
+if (location.hash === '#autotest') {
+  window.__t = {
+    G, V, get T() { return T; }, regen: p => { Object.assign(G, p); syncUI(); regenerate(); },
+    mode: m => { groundU.uMode.value = m; },
+    cam: (x, y, z, tx, ty, tz) => { camera.position.set(x, y, z); controls.target.set(tx, ty, tz); controls.update(); },
+    walk: () => { enterWalk(); locked = true; },
+    orbit: () => exitWalk(),
+    look: (yaw, pitch) => { look.yaw = yaw; look.pitch = pitch; },
+    keys, get player() { return player; },
+  };
+}
+</script>
+</body>
+</html>

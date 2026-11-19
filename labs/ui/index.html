@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI / HUD Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&family=Rajdhani:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  :root { --acc:#f2c14e; --txt:#f2f2f2; --bad:#ef4444; --good:#4ade80; --armor:#60a5fa; --scale:1; --op:0.9; --font:'Rajdhani', system-ui, sans-serif; --radius:4px; --margin:28px; --panel:rgba(10,12,15,.55); }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#000; color:#e6e6e6; font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  #stage { flex:1; position:relative; overflow:hidden; min-width:0; }
+  #bg { position:absolute; inset:0; width:100%; height:100%; }
+  #hud { position:absolute; inset:0; pointer-events:none; font-family:var(--font); color:var(--txt); opacity:var(--op); }
+  .anchor { position:absolute; transform-origin:inherit; }
+  .tl { left:var(--margin); top:var(--margin); transform:scale(var(--scale)); transform-origin:top left; }
+  .tr { right:var(--margin); top:var(--margin); transform:scale(var(--scale)); transform-origin:top right; }
+  .bl { left:var(--margin); bottom:var(--margin); transform:scale(var(--scale)); transform-origin:bottom left; }
+  .br { right:var(--margin); bottom:var(--margin); transform:scale(var(--scale)); transform-origin:bottom right; }
+  .tc { left:50%; top:var(--margin); transform:translateX(-50%) scale(var(--scale)); transform-origin:top center; }
+  .bc { left:50%; bottom:calc(var(--margin) + 120px); transform:translateX(-50%) scale(var(--scale)); transform-origin:bottom center; }
+  .shadow { text-shadow:0 1px 2px rgba(0,0,0,.8), 0 0 6px rgba(0,0,0,.4); }
+  /* vitals */
+  .vit { display:grid; grid-template-columns:28px 220px 44px; align-items:center; gap:8px; margin:5px 0; }
+  .vit .ic { font-weight:700; font-size:14px; }
+  .bar { height:12px; background:rgba(0,0,0,.45); border-radius:var(--radius); overflow:hidden; position:relative; border:1px solid rgba(255,255,255,.12); }
+  .bar i { position:absolute; inset:0; width:100%; transition:width .25s; }
+  .bar .lag { background:rgba(255,255,255,.6); transition:width .8s .25s; }
+  .num { font-size:20px; font-weight:700; text-align:right; }
+  /* ammo */
+  #ammo { text-align:right; }
+  #ammo .mag { font-size:56px; font-weight:700; line-height:1; } #ammo .res { font-size:24px; opacity:.7; }
+  #ammo .meta { font-size:15px; letter-spacing:.12em; text-transform:uppercase; opacity:.85; }
+  #ammo.low .mag { color:var(--bad); }
+  #reloadRing { position:absolute; left:50%; top:50%; width:44px; height:44px; margin:-22px; display:none; }
+  /* crosshair */
+  #xh { position:absolute; left:50%; top:50%; width:0; height:0; }
+  #xh .ln { position:absolute; background:var(--xc); box-shadow:0 0 0 var(--xo) rgba(0,0,0,.85); }
+  #xh .dot { position:absolute; border-radius:50%; background:var(--xc); box-shadow:0 0 0 var(--xo) rgba(0,0,0,.85); }
+  #xh .circ { position:absolute; border-radius:50%; border:var(--xt) solid var(--xc); }
+  #hit { position:absolute; left:50%; top:50%; width:0; height:0; opacity:0; }
+  #hit i { position:absolute; width:12px; height:2px; background:#fff; box-shadow:0 0 2px #000; }
+  /* damage direction */
+  #dmgdir { position:absolute; left:50%; top:50%; width:0; height:0; }
+  .arc { position:absolute; left:-90px; top:-90px; width:180px; height:180px; border-radius:50%; border:6px solid transparent; border-top-color:var(--bad); opacity:0; transition:opacity .9s; filter:drop-shadow(0 0 4px rgba(239,68,68,.7)); }
+  #lowhp { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .4s; background:radial-gradient(ellipse at center, transparent 45%, rgba(170,0,0,.55) 100%); }
+  /* feed */
+  #feed { text-align:right; font-size:16px; }
+  #feed div { margin:3px 0; padding:2px 8px; background:var(--panel); border-radius:var(--radius); display:inline-block; transition:opacity .6s; }
+  #feed b { color:var(--acc); }
+  /* compass */
+  #compass { width:480px; height:36px; overflow:hidden; position:relative; background:linear-gradient(90deg, transparent, var(--panel) 15%, var(--panel) 85%, transparent); border-radius:var(--radius); }
+  #compass .strip { position:absolute; top:0; height:36px; white-space:nowrap; }
+  #compass span { position:absolute; top:7px; transform:translateX(-50%); font-size:16px; font-weight:700; }
+  #compass span.minor { font-size:11px; top:11px; opacity:.6; }
+  #compass .obj { position:absolute; top:-2px; color:var(--acc); font-size:14px; transform:translateX(-50%); }
+  #compass:after { content:""; position:absolute; left:50%; top:0; width:2px; height:8px; background:var(--acc); transform:translateX(-1px); }
+  /* objective */
+  #objText { margin-top:6px; text-align:center; font-size:15px; letter-spacing:.06em; }
+  #objMarker { position:absolute; transform:translate(-50%,-100%); text-align:center; color:var(--acc); font-weight:700; font-size:14px; }
+  #objMarker .d { width:14px; height:14px; border:2px solid var(--acc); transform:rotate(45deg); margin:0 auto 4px; }
+  /* minimap */
+  #mini { width:160px; height:160px; border-radius:50%; background:var(--panel); border:2px solid rgba(255,255,255,.18); display:block; }
+  /* prompt + toast */
+  #prompt { font-size:20px; padding:6px 14px; background:var(--panel); border-radius:var(--radius); display:none; }
+  #prompt kbd { display:inline-block; min-width:26px; padding:0 6px; margin-right:8px; background:var(--txt); color:#111; border-radius:4px; text-align:center; font-weight:700; }
+  #toast { position:absolute; left:50%; top:30%; transform:translateX(-50%); font-size:26px; letter-spacing:.2em; text-transform:uppercase; color:var(--acc); opacity:0; transition:opacity .4s; }
+  /* menu */
+  #menu { position:absolute; inset:0; background:rgba(5,6,8,.72); backdrop-filter:blur(4px); display:none; pointer-events:auto; font-family:var(--font); color:var(--txt); }
+  #menu .wrap { position:absolute; left:8%; top:12%; width:min(720px, 84%); }
+  #menu h1 { font-size:46px; margin:0 0 16px; letter-spacing:.14em; color:var(--acc); font-weight:700; }
+  #menu .tabs { display:flex; gap:6px; margin-bottom:12px; } #menu .tabs button { font-family:var(--font); font-size:17px; letter-spacing:.08em; text-transform:uppercase; background:transparent; color:var(--txt); border:none; border-bottom:2px solid transparent; padding:6px 10px; cursor:pointer; }
+  #menu .tabs button.on { border-bottom-color:var(--acc); color:var(--acc); }
+  #menu .opt { display:grid; grid-template-columns:220px 1fr 60px; align-items:center; padding:9px 12px; background:var(--panel); border-radius:var(--radius); margin:4px 0; font-size:17px; }
+  #menu .opt input { accent-color:var(--acc); width:100%; }
+  #menu .side { position:absolute; left:calc(100% + 28px); top:66px; display:flex; flex-direction:column; gap:8px; }
+  #menu .side button { font-family:var(--font); font-size:20px; text-transform:uppercase; letter-spacing:.1em; background:var(--panel); color:var(--txt); border:1px solid rgba(255,255,255,.15); border-radius:var(--radius); padding:10px 22px; cursor:pointer; text-align:left; }
+  #menu .side button:hover { border-color:var(--acc); color:var(--acc); }
+  /* lab panel */
+  aside { width:310px; flex:none; background:#1e2125; border-left:1px solid #2e3238; overflow-y:auto; padding:10px 12px 24px; }
+  aside h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#f2c14e; margin:0 0 8px; }
+  aside h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9aa0a6; margin:12px 0 4px; }
+  aside .row { display:grid; grid-template-columns:100px 1fr 40px; gap:6px; align-items:center; margin:3px 0; }
+  aside .row label { color:#9aa0a6; font-size:12px; }
+  aside .row input[type=range] { width:100%; accent-color:#f2c14e; } aside .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  aside .row select, aside .row input[type=color] { grid-column:2 / span 2; width:100%; } aside input[type=color] { height:26px; padding:0; }
+  aside .grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  aside button, aside select { background:#2a2e34; color:#e6e6e6; border:1px solid #2e3238; border-radius:6px; padding:6px 8px; font:inherit; cursor:pointer; }
+  aside button.on { background:#f2c14e; color:#111; font-weight:600; }
+  @media (max-width: 760px) { #app { flex-direction:column; } aside { width:100%; height:45vh; border-left:none; } #stage { height:55vh; flex:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="bg"></canvas>
+    <div id="lowhp"></div>
+    <div id="hud">
+      <div class="anchor tl"><canvas id="mini" width="320" height="320"></canvas></div>
+      <div class="anchor tc"><div id="compass"><div class="strip" id="strip"></div></div><div id="objText" class="shadow">◆ Reach the bodega · 142 m</div></div>
+      <div class="anchor tr"><div id="feed"></div></div>
+      <div class="anchor bl">
+        <div class="vit shadow"><span class="ic" style="color:var(--armor)">AR</span><div class="bar"><i class="lag" id="arLag"></i><i id="ar" style="background:var(--armor)"></i></div><span class="num" id="arN">50</span></div>
+        <div class="vit shadow"><span class="ic" style="color:var(--good)">HP</span><div class="bar"><i class="lag" id="hpLag"></i><i id="hp" style="background:var(--good)"></i></div><span class="num" id="hpN">100</span></div>
+      </div>
+      <div class="anchor br"><div id="ammo" class="shadow"><span class="mag" id="mag">30</span> <span class="res">/ <span id="res">90</span></span><div class="meta" id="meta">Assault rifle · auto</div></div></div>
+      <div class="anchor bc"><div id="prompt" class="shadow"><kbd>E</kbd>Open door</div></div>
+      <div id="objMarker" class="shadow"><div class="d"></div><span id="objDist">142 m</span></div>
+      <div id="dmgdir"></div>
+      <div id="xh"></div>
+      <div id="hit"><i></i><i></i><i></i><i></i></div>
+      <svg id="reloadRing" viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" fill="none" stroke="rgba(0,0,0,.5)" stroke-width="4"/><circle id="rr" cx="22" cy="22" r="18" fill="none" stroke="var(--acc)" stroke-width="4" stroke-dasharray="113" stroke-dashoffset="113" transform="rotate(-90 22 22)"/></svg>
+      <div id="toast" class="shadow"></div>
+    </div>
+    <div id="menu"><div class="wrap">
+      <h1>PAUSED</h1>
+      <div class="tabs" id="mtabs"></div>
+      <div id="mbody"></div>
+      <div class="side"><button id="mResume">Resume</button><button>Settings</button><button>Quit to menu</button></div>
+    </div></div>
+  </div>
+  <aside>
+    <h1>UI / HUD lab</h1>
+    <h2>Simulate events</h2>
+    <div class="grid" id="events"></div>
+    <h2>Background</h2>
+    <div class="row"><label>Scene</label><select id="bgSel"><option>night street</option><option>bright day</option><option>busy noise</option><option>white wall</option></select></div>
+    <div id="theme"></div>
+    <h2>Crosshair</h2>
+    <div id="xhParams"></div>
+    <div class="grid" style="margin-top:10px"><button id="bCopy">Copy theme</button><button id="bReset">Reset theme</button></div>
+  </aside>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+// ---------- theme ----------
+const DEFAULT = { accent: '#f2c14e', text: '#f2f2f2', font: 'Rajdhani', scale: 1, opacity: 0.92, radius: 4, margin: 28, panelAlpha: 0.55, colorblind: false,
+  xStyle: 'cross', xColor: '#7CFF6B', xSize: 7, xGap: 5, xThick: 2, xOutline: 1, xDot: true, xDynamic: true };
+let T = { ...DEFAULT };
+try { Object.assign(T, JSON.parse(localStorage.getItem('uilab.v1') || '{}')); } catch (e) {}
+const persist = () => { try { localStorage.setItem('uilab.v1', JSON.stringify(T)); } catch (e) {} };
+const FONTS = { Rajdhani: "'Rajdhani', sans-serif", Oswald: "'Oswald', sans-serif", Mono: "'JetBrains Mono', monospace", System: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" };
+function applyTheme() {
+  const r = document.documentElement.style;
+  r.setProperty('--acc', T.accent); r.setProperty('--txt', T.text); r.setProperty('--font', FONTS[T.font]);
+  r.setProperty('--scale', T.scale); r.setProperty('--op', T.opacity); r.setProperty('--radius', T.radius + 'px'); r.setProperty('--margin', T.margin + 'px');
+  r.setProperty('--panel', `rgba(10,12,15,${T.panelAlpha})`);
+  // colorblind-safe palette (blue/orange instead of green/red)
+  r.setProperty('--good', T.colorblind ? '#38bdf8' : '#4ade80'); r.setProperty('--bad', T.colorblind ? '#f97316' : '#ef4444');
+  drawCrosshair();
+}
+const THEME_SPEC = [
+  ['Theme', [['accent', 'color'], ['text', 'color'], ['font', Object.keys(FONTS)], ['scale', 0.6, 1.6, 0.01], ['opacity', 0.3, 1, 0.01], ['radius', 0, 14, 1, 'px'], ['margin', 8, 80, 1, 'px'], ['panelAlpha', 0, 0.9, 0.01], ['colorblind', 'bool']]],
+];
+const XH_SPEC = [['xStyle', ['cross', 'dot', 'circle', 'chevron', 't-shape']], ['xColor', 'color'], ['xSize', 2, 20, 1, 'px'], ['xGap', 0, 20, 1, 'px'], ['xThick', 1, 6, 1, 'px'], ['xOutline', 0, 3, 1, 'px'], ['xDot', 'bool'], ['xDynamic', 'bool']];
+function controls(wrap, spec, onchange) {
+  for (const [k, a, b, step, unit] of spec) {
+    const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = `<label>${k.replace(/^x/, '').replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())}</label>`;
+    let inp;
+    if (a === 'color') { inp = document.createElement('input'); inp.type = 'color'; inp.value = T[k]; inp.oninput = () => { T[k] = inp.value; onchange(); }; row.append(inp); }
+    else if (a === 'bool') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = T[k]; inp.onchange = () => { T[k] = inp.checked; onchange(); }; row.append(inp); }
+    else if (Array.isArray(a)) { inp = document.createElement('select'); inp.innerHTML = a.map(o => `<option>${o}</option>`).join(''); inp.value = T[k]; inp.onchange = () => { T[k] = inp.value; onchange(); }; row.append(inp); }
+    else { inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: T[k] }); const v = document.createElement('span'); v.className = 'val'; v.textContent = T[k]; inp.oninput = () => { T[k] = parseFloat(inp.value); v.textContent = T[k]; onchange(); }; row.append(inp, v); }
+    wrap.appendChild(row);
+  }
+}
+function renderPanel() {
+  $('theme').innerHTML = ''; $('xhParams').innerHTML = '';
+  for (const [g, spec] of THEME_SPEC) { const h = document.createElement('h2'); h.textContent = g; $('theme').appendChild(h); controls($('theme'), spec, () => { applyTheme(); persist(); }); }
+  controls($('xhParams'), XH_SPEC, () => { drawCrosshair(); persist(); });
+}
+
+// ---------- crosshair ----------
+let spread = 0;
+function drawCrosshair() {
+  const x = $('xh'); x.innerHTML = '';
+  x.style.setProperty('--xc', T.xColor); x.style.setProperty('--xo', T.xOutline + 'px'); x.style.setProperty('--xt', T.xThick + 'px');
+  const g = T.xGap + (T.xDynamic ? spread : 0), s = T.xSize, t = T.xThick;
+  const line = (l, tp, w, h) => { const e = document.createElement('i'); e.className = 'ln'; Object.assign(e.style, { left: l + 'px', top: tp + 'px', width: w + 'px', height: h + 'px' }); x.appendChild(e); };
+  if (T.xStyle === 'cross' || T.xStyle === 't-shape') {
+    if (T.xStyle === 'cross') line(-t / 2, -g - s, t, s);
+    line(-t / 2, g, t, s); line(-g - s, -t / 2, s, t); line(g, -t / 2, s, t);
+  } else if (T.xStyle === 'circle') {
+    const c = document.createElement('i'); c.className = 'circ'; const d = (g + s) * 2; Object.assign(c.style, { left: -d / 2 + 'px', top: -d / 2 + 'px', width: d + 'px', height: d + 'px' }); x.appendChild(c);
+  } else if (T.xStyle === 'chevron') {
+    for (const sx of [-1, 1]) { const e = document.createElement('i'); e.className = 'ln'; Object.assign(e.style, { left: (sx < 0 ? -s : 0) + 'px', top: g + 'px', width: s + 'px', height: t + 'px', transform: `rotate(${sx * -35}deg)`, transformOrigin: sx < 0 ? 'right center' : 'left center' }); x.appendChild(e); }
+  }
+  if (T.xDot || T.xStyle === 'dot') { const d = document.createElement('i'); d.className = 'dot'; const z = Math.max(2, t + (T.xStyle === 'dot' ? 2 : 0)); Object.assign(d.style, { left: -z / 2 + 'px', top: -z / 2 + 'px', width: z + 'px', height: z + 'px' }); x.appendChild(d); }
+}
+
+// ---------- game state + events ----------
+const G = { hp: 100, ar: 50, mag: 30, magMax: 30, res: 90, heading: 20, reloading: false };
+function vitals() {
+  $('hp').style.width = G.hp + '%'; $('hpLag').style.width = G.hp + '%'; $('hpN').textContent = Math.round(G.hp);
+  $('ar').style.width = G.ar + '%'; $('arLag').style.width = G.ar + '%'; $('arN').textContent = Math.round(G.ar);
+  $('lowhp').style.opacity = G.hp < 30 ? String(0.4 + (30 - G.hp) / 50) : '0';
+  $('mag').textContent = G.mag; $('res').textContent = G.res; $('ammo').classList.toggle('low', G.mag <= G.magMax * 0.25);
+}
+function damage(amount, angleDeg) {
+  const fromAr = Math.min(G.ar, amount * 0.6); G.ar -= fromAr; G.hp = Math.max(0, G.hp - (amount - fromAr));
+  $('hpLag').style.transition = 'none'; requestAnimationFrame(() => { $('hpLag').style.transition = ''; vitals(); });
+  const a = document.createElement('div'); a.className = 'arc'; a.style.transform = `rotate(${angleDeg}deg)`; $('dmgdir').appendChild(a);
+  requestAnimationFrame(() => { a.style.opacity = '1'; setTimeout(() => (a.style.opacity = '0'), 250); setTimeout(() => a.remove(), 1300); });
+}
+function hitmarker(kind) {
+  const h = $('hit'), col = kind === 'head' ? T.accent : kind === 'kill' ? getComputedStyle(document.documentElement).getPropertyValue('--bad') : '#ffffff';
+  [...h.children].forEach((i, k) => { const ang = 45 + k * 90, d = kind === 'kill' ? 10 : 7; Object.assign(i.style, { background: col, width: (kind === 'kill' ? 16 : 11) + 'px', transform: `rotate(${ang}deg) translateX(${d}px)`, left: '0', top: '-1px', transformOrigin: '0 50%' }); });
+  h.style.transition = 'none'; h.style.opacity = '1'; requestAnimationFrame(() => { h.style.transition = 'opacity .35s .1s'; h.style.opacity = '0'; });
+}
+function fire(n = 1) {
+  if (G.reloading || G.mag <= 0) return;
+  G.mag = Math.max(0, G.mag - n); spread = Math.min(14, spread + 3); drawCrosshair(); vitals();
+  const r = Math.random(); if (r < 0.5) hitmarker(r < 0.12 ? 'head' : 'body');
+}
+function reload() {
+  if (G.reloading || G.res <= 0 || G.mag === G.magMax) return;
+  G.reloading = true; const ring = $('reloadRing'), c = $('rr'); ring.style.display = 'block';
+  const t0 = performance.now(), dur = 2000;
+  const step = () => { const k = Math.min(1, (performance.now() - t0) / dur); c.setAttribute('stroke-dashoffset', String(113 * (1 - k))); if (k < 1) requestAnimationFrame(step); else { const take = Math.min(G.res, G.magMax - G.mag); G.mag += take; G.res -= take; G.reloading = false; ring.style.display = 'none'; vitals(); } };
+  step();
+}
+const NAMES = ['Viper', 'Mack', 'Juno', 'Rook', 'Sable', 'Duke', 'Wren', 'Kilo'];
+function kill(head) {
+  hitmarker('kill');
+  const d = document.createElement('div'); d.innerHTML = `<b>You</b> ${head ? '⌖' : '›'} ${NAMES[Math.floor(Math.random() * NAMES.length)]}${head ? ' · headshot' : ''}`;
+  const wrap = document.createElement('div'); wrap.appendChild(d); $('feed').prepend(wrap);
+  setTimeout(() => (d.style.opacity = '0'), 4500); setTimeout(() => wrap.remove(), 5200);
+  while ($('feed').children.length > 5) $('feed').lastChild.remove();
+}
+function toast(text) { const t = $('toast'); t.textContent = text; t.style.opacity = '1'; clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.opacity = '0'), 1800); }
+const EVENTS = {
+  'Take damage': () => damage(12 + Math.random() * 15, Math.random() * 360),
+  'Heavy hit': () => damage(45, Math.random() * 360),
+  'Heal': () => { G.hp = Math.min(100, G.hp + 35); vitals(); },
+  'Armor up': () => { G.ar = 100; vitals(); toast('Armor'); },
+  'Fire': () => fire(),
+  'Burst ×5': () => { for (let i = 0; i < 5; i++) setTimeout(() => fire(), i * 90); },
+  'Headshot': () => hitmarker('head'),
+  'Kill': () => kill(false),
+  'Headshot kill': () => kill(true),
+  'Reload': reload,
+  'Prompt': () => { const p = $('prompt'); p.style.display = p.style.display === 'block' ? 'none' : 'block'; },
+  'Objective': () => { $('objText').textContent = '◆ Defend the bus stop · 48 m'; objDist = 48; toast('Objective updated'); },
+  'Checkpoint': () => toast('Checkpoint reached'),
+  'Pause menu': () => toggleMenu(),
+  'Demo loop': null,
+};
+let demo = null;
+EVENTS['Demo loop'] = () => {
+  if (demo) { clearInterval(demo); demo = null; return; }
+  demo = setInterval(() => { const keys = ['Take damage', 'Fire', 'Burst ×5', 'Kill', 'Heal', 'Headshot kill', 'Reload']; EVENTS[keys[Math.floor(Math.random() * keys.length)]](); if (G.hp < 20) { G.hp = 100; G.ar = 50; vitals(); } }, 700);
+};
+for (const [name, f] of Object.entries(EVENTS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => { f(); if (name === 'Demo loop') b.classList.toggle('on', !!demo); }; $('events').appendChild(b); }
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; if (e.code === 'Escape') toggleMenu(); if (e.code === 'KeyR') reload(); if (e.code === 'Space') { e.preventDefault(); fire(); } });
+
+// ---------- pause / settings menu ----------
+const MENU = {
+  Gameplay: [['Field of view', 60, 110, 90], ['Mouse sensitivity', 0.1, 5, 1.2], ['Aim sensitivity', 0.1, 2, 0.8], ['Crosshair', 'toggle', true], ['Damage numbers', 'toggle', false]],
+  Video: [['Render scale', 50, 100, 100], ['Brightness', 0, 2, 1], ['Motion blur', 'toggle', false], ['Film grain', 'toggle', true], ['Shadows', ['low', 'medium', 'high']]],
+  Audio: [['Master', 0, 100, 80], ['Effects', 0, 100, 90], ['Music', 0, 100, 50], ['Voice', 0, 100, 85], ['Subtitles', 'toggle', true]],
+  Controls: [['Fire', 'key', 'Mouse 1'], ['Aim', 'key', 'Mouse 2'], ['Reload', 'key', 'R'], ['Crouch', 'key', 'C'], ['Interact', 'key', 'E']],
+};
+let menuTab = 'Gameplay';
+function renderMenu() {
+  $('mtabs').innerHTML = Object.keys(MENU).map(k => `<button class="${k === menuTab ? 'on' : ''}">${k}</button>`).join('');
+  [...$('mtabs').children].forEach(b => b.onclick = () => { menuTab = b.textContent; renderMenu(); });
+  $('mbody').innerHTML = MENU[menuTab].map(([label, a, b, v]) => {
+    if (a === 'toggle') return `<div class="opt"><span>${label}</span><span style="color:var(--acc)">${b ? 'ON' : 'OFF'}</span><span></span></div>`;
+    if (a === 'key') return `<div class="opt"><span>${label}</span><span><kbd style="background:var(--txt);color:#111;padding:2px 8px;border-radius:4px">${b}</kbd></span><span></span></div>`;
+    if (Array.isArray(a)) return `<div class="opt"><span>${label}</span><span>‹ ${a[1]} ›</span><span></span></div>`;
+    return `<div class="opt"><span>${label}</span><input type="range" min="${a}" max="${b}" step="any" value="${v}" oninput="this.nextElementSibling.textContent=(+this.value).toFixed(${b > 10 ? 0 : 1})"><span style="text-align:right">${v}</span></div>`;
+  }).join('');
+}
+function toggleMenu() { const m = $('menu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; renderMenu(); }
+$('mResume').onclick = toggleMenu;
+
+// ---------- compass, minimap, objective marker ----------
+let objDist = 142;
+function buildCompass() {
+  const strip = $('strip'); strip.innerHTML = '';
+  const labels = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+  for (let d = -360; d <= 720; d += 15) { const s = document.createElement('span'); const n = ((d % 360) + 360) % 360; s.textContent = labels[n] || (n % 45 ? '|' : n); if (!labels[n]) s.className = 'minor'; s.style.left = (d * 4) + 'px'; strip.appendChild(s); }
+  const o = document.createElement('span'); o.className = 'obj'; o.textContent = '◆'; o.id = 'compObj'; strip.appendChild(o);
+}
+buildCompass();
+const mini = $('mini').getContext('2d');
+const enemies = [[40, -30], [-60, 20], [70, 50], [10, 90]];
+function frame(t) {
+  G.heading = 20 + Math.sin(t / 4000) * 60;
+  $('strip').style.left = (240 - G.heading * 4) + 'px';
+  const objBearing = 75; $('compObj').style.left = (objBearing * 4) + 'px';
+  spread = Math.max(0, spread - 0.4); if (T.xDynamic) drawCrosshair();
+  const st = $('stage').getBoundingClientRect();
+  const rel = ((objBearing - G.heading + 540) % 360) - 180;
+  const mk = $('objMarker'); mk.style.display = Math.abs(rel) < 40 ? '' : 'none';
+  mk.style.left = (st.width / 2 + rel / 40 * st.width * 0.45) + 'px'; mk.style.top = (st.height * 0.42) + 'px';
+  $('objDist').textContent = objDist + ' m';
+  // minimap
+  mini.clearRect(0, 0, 320, 320); mini.save(); mini.beginPath(); mini.arc(160, 160, 158, 0, Math.PI * 2); mini.clip();
+  mini.translate(160, 160); mini.rotate(-G.heading * Math.PI / 180);
+  mini.fillStyle = 'rgba(255,255,255,.08)'; for (const [x, y, w, h] of [[-120, -60, 80, 50], [30, 20, 90, 60], [-50, 70, 60, 40], [40, -110, 50, 70]]) mini.fillRect(x, y, w, h);
+  mini.strokeStyle = 'rgba(255,255,255,.18)'; mini.lineWidth = 14; mini.beginPath(); mini.moveTo(-200, 0); mini.lineTo(200, 0); mini.moveTo(0, -200); mini.lineTo(0, 200); mini.stroke();
+  const bad = getComputedStyle(document.documentElement).getPropertyValue('--bad');
+  mini.fillStyle = bad; for (const [x, y] of enemies) { mini.beginPath(); mini.arc(x + Math.sin(t / 900 + x) * 6, y, 6, 0, Math.PI * 2); mini.fill(); }
+  mini.fillStyle = T.accent; mini.save(); mini.rotate(objBearing * Math.PI / 180); mini.translate(0, -120); mini.rotate(Math.PI / 4); mini.fillRect(-7, -7, 14, 14); mini.restore();
+  mini.restore();
+  mini.fillStyle = T.text; mini.beginPath(); mini.moveTo(160, 146); mini.lineTo(170, 172); mini.lineTo(160, 166); mini.lineTo(150, 172); mini.closePath(); mini.fill();
+  requestAnimationFrame(frame);
+}
+
+// ---------- backgrounds (legibility tests) ----------
+function drawBg() {
+  const c = $('bg'), r = c.getBoundingClientRect(); c.width = r.width; c.height = r.height;
+  const g = c.getContext('2d'), W = c.width, H = c.height, kind = $('bgSel').value;
+  if (kind === 'white wall') { g.fillStyle = '#eeeeea'; g.fillRect(0, 0, W, H); return; }
+  if (kind === 'busy noise') { for (let i = 0; i < 4000; i++) { g.fillStyle = `hsl(${Math.random() * 360},40%,${20 + Math.random() * 60}%)`; g.fillRect(Math.random() * W, Math.random() * H, 4 + Math.random() * 30, 4 + Math.random() * 30); } return; }
+  const day = kind === 'bright day';
+  const sky = g.createLinearGradient(0, 0, 0, H * 0.6); sky.addColorStop(0, day ? '#8fb8de' : '#0b1020'); sky.addColorStop(1, day ? '#dfe9f1' : '#25263a');
+  g.fillStyle = sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = day ? '#6f7377' : '#14161c'; g.fillRect(0, H * 0.6, W, H * 0.4);
+  let x = 0; while (x < W) { const w = 80 + Math.random() * 160, h = H * (0.25 + Math.random() * 0.35); g.fillStyle = day ? `hsl(20,${15 + Math.random() * 20}%,${35 + Math.random() * 25}%)` : `hsl(230,15%,${8 + Math.random() * 8}%)`; g.fillRect(x, H * 0.6 - h, w, h);
+    for (let wy = H * 0.6 - h + 14; wy < H * 0.6 - 20; wy += 26) for (let wx = x + 10; wx < x + w - 14; wx += 22) { g.fillStyle = day ? 'rgba(40,60,80,.7)' : (Math.random() < 0.3 ? '#f7d68a' : '#1b1e27'); g.fillRect(wx, wy, 12, 16); }
+    x += w + 6; }
+  if (!day) for (let i = 0; i < 6; i++) { const lx = (i + 0.5) * W / 6, gr = g.createRadialGradient(lx, H * 0.45, 0, lx, H * 0.45, 140); gr.addColorStop(0, 'rgba(255,214,150,.35)'); gr.addColorStop(1, 'rgba(255,214,150,0)'); g.fillStyle = gr; g.fillRect(lx - 140, H * 0.45 - 140, 280, 280); }
+}
+$('bgSel').onchange = drawBg; new ResizeObserver(drawBg).observe($('stage'));
+$('bCopy').onclick = async () => { const t = JSON.stringify({ kind: 'hudTheme', version: 1, theme: T }, null, 2); try { await navigator.clipboard.writeText(t); $('bCopy').textContent = 'Copied'; setTimeout(() => ($('bCopy').textContent = 'Copy theme'), 1200); } catch (e) { prompt('Copy:', t); } };
+$('bReset').onclick = () => { T = { ...DEFAULT }; renderPanel(); applyTheme(); persist(); };
+renderPanel(); applyTheme(); vitals(); requestAnimationFrame(frame);
+if (location.hash === '#autotest') window.__ui = { EVENTS, T, applyTheme, renderPanel };
+</script>
+</body>
+</html>

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics & Destruction Lab</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#111; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  main { flex:1; position:relative; min-width:0; }
+  aside { width:300px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 24px; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:12px 0 4px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  button, select { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; cursor:pointer; }
+  button.on { background:var(--acc); color:#111; font-weight:600; }
+  .row { display:grid; grid-template-columns:110px 1fr 44px; gap:6px; align-items:center; margin:3px 0; }
+  .row label { color:var(--dim); font-size:12px; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); } .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  #stats { position:absolute; left:10px; top:10px; background:rgba(15,17,20,.85); border:1px solid var(--line); border-radius:6px; padding:6px 9px; font:12px/1.5 ui-monospace, Menlo, monospace; color:var(--dim); pointer-events:none; white-space:pre; }
+  #help { position:absolute; left:10px; bottom:10px; background:rgba(15,17,20,.85); border:1px solid var(--line); border-radius:6px; padding:6px 9px; color:var(--dim); font-size:12px; pointer-events:none; }
+  @media (max-width: 760px) { #app { flex-direction:column; } aside { width:100%; height:42vh; border-left:none; } main { height:58vh; flex:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <main><div id="stats"></div><div id="help">Left-click: shoot · right-drag: orbit · scroll: zoom · G: throw grenade at cursor</div></main>
+  <aside>
+    <h1>Physics & destruction</h1>
+    <div class="grid">
+      <button id="bReset">Reset scene</button><button id="bPause">Pause</button>
+      <button id="bGrenade">Grenade (G)</button><button id="bRagdoll">Drop ragdoll</button>
+      <button id="bCrates">Crate rain</button><button id="bSlow">Slow-mo</button>
+    </div>
+    <h2>Click action</h2>
+    <div class="grid" id="tools"></div>
+    <div id="params"></div>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const $ = id => document.getElementById(id);
+
+// ---------- settings ----------
+const P = { gravity: 9.81, bulletImpulse: 6, explosionForce: 40, explosionRadius: 6, glassStrength: 3, crateHealth: 3, solverIterations: 10, sleep: true, shardLife: 12, plankLife: 0, freezeSettled: true, maxDynamic: 300, maxDebris: 800, crateMass: 8 };
+const SPEC = [['gravity', 1, 20, 0.1, 'm/s²'], ['bulletImpulse', 0, 30, 0.5, 'N·s'], ['explosionForce', 0, 150, 1], ['explosionRadius', 1, 15, 0.5, 'm'], ['glassStrength', 0.5, 15, 0.5, 'impact speed'], ['crateHealth', 1, 10, 1, 'shots'], ['solverIterations', 1, 30, 1], ['shardLife', 0, 60, 1, 's (0 = forever)'], ['plankLife', 0, 60, 1, 's (0 = forever)'], ['freezeSettled', 'bool'], ['maxDynamic', 50, 1000, 10, 'moving bodies'], ['maxDebris', 50, 3000, 50, 'frozen pieces'], ['crateMass', 1, 50, 1, 'kg']];
+try { Object.assign(P, JSON.parse(localStorage.getItem('physlab.v2') || '{}')); } catch (e) {}
+const persist = () => { try { localStorage.setItem('physlab.v2', JSON.stringify(P)); } catch (e) {} };
+
+// ---------- three ----------
+const main = document.querySelector('main');
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+main.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xbfcad3); scene.fog = new THREE.Fog(0xbfcad3, 60, 140);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500); camera.position.set(16, 10, 20);
+const orbit = new OrbitControls(camera, renderer.domElement); orbit.target.set(0, 2, 0); orbit.enableDamping = true;
+orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }; orbit.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(15, 30, 10); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 100 }); scene.add(sun);
+const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 1 })); groundMesh.rotation.x = -Math.PI / 2; groundMesh.receiveShadow = true; scene.add(groundMesh);
+const gridH = new THREE.GridHelper(200, 100, 0x6a6f76, 0x7a7f86); gridH.position.y = 0.01; scene.add(gridH);
+
+// ---------- cannon world ----------
+let world, items = [];
+function crateTex(damaged) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = damaged ? '#7d5f3c' : '#b08a5a'; g.fillRect(0, 0, 128, 128);
+  g.fillStyle = damaged ? '#4a3622' : '#6b4f30'; for (let y = 0; y < 128; y += 32) g.fillRect(0, y, 128, 3);
+  g.fillRect(0, 0, 10, 128); g.fillRect(118, 0, 10, 128); g.fillRect(0, 0, 128, 10); g.fillRect(0, 118, 128, 10);
+  g.save(); g.translate(64, 64); g.rotate(Math.PI / 4); g.fillRect(-80, -5, 160, 10); g.restore();
+  if (damaged) { g.strokeStyle = '#1e140b'; g.lineWidth = 2; for (let i = 0; i < 7; i++) { g.beginPath(); let x = Math.random() * 128, y = Math.random() * 128; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (Math.random() - 0.5) * 40; y += (Math.random() - 0.5) * 40; g.lineTo(x, y); } g.stroke(); } }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const mats = { crate: new THREE.MeshStandardMaterial({ map: crateTex(false), roughness: 0.9 }), crateDamaged: new THREE.MeshStandardMaterial({ map: crateTex(true), roughness: 0.95 }), plank: new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.95 }), splinter: new THREE.MeshStandardMaterial({ color: 0xd8b98a, roughness: 0.95 }), barrel: new THREE.MeshStandardMaterial({ color: 0x3f6aa0, roughness: 0.6, metalness: 0.3 }), boom: new THREE.MeshStandardMaterial({ color: 0xc1121f, roughness: 0.5, metalness: 0.3 }), glass: new THREE.MeshStandardMaterial({ color: 0x9fc4d6, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.45 }), shard: new THREE.MeshStandardMaterial({ color: 0xbfe0ee, roughness: 0.05, transparent: true, opacity: 0.6 }), frame: new THREE.MeshStandardMaterial({ color: 0x3a3a3a }), skin: new THREE.MeshStandardMaterial({ color: 0xc69c7a, roughness: 0.8 }), cloth: new THREE.MeshStandardMaterial({ color: 0x4a5a6a, roughness: 0.9 }), grenade: new THREE.MeshStandardMaterial({ color: 0x3a4a2a }), concrete: new THREE.MeshStandardMaterial({ color: 0xa8a49c, roughness: 0.95 }) };
+function newWorld() {
+  for (const it of items) { scene.remove(it.mesh); it.mesh.geometry.dispose(); }
+  items = [];
+  for (const f of frozen) { scene.remove(f.mesh); f.mesh.geometry.dispose(); } frozen = [];
+  world = new CANNON.World({ gravity: new CANNON.Vec3(0, -P.gravity, 0) });
+  world.broadphase = new CANNON.SAPBroadphase(world); world.allowSleep = P.sleep;
+  world.solver.iterations = P.solverIterations;
+  world.defaultContactMaterial.friction = 0.5; world.defaultContactMaterial.restitution = 0.1;
+  const ground = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() }); ground.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(ground);
+  world.addEventListener('postStep', () => {});
+}
+function add(body, mesh, kind, extra = {}) {
+  body.sleepSpeedLimit = 0.2; body.sleepTimeLimit = 0.6;
+  world.addBody(body); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh);
+  const it = { body, mesh, kind, ...extra }; body.userData = it; items.push(it);
+  if (items.length > P.maxDynamic) { const old = items.find(i => i.kind === 'shard' || i.kind === 'plank') || items.find(i => i.kind === 'crate'); if (old) freezeOrRemove(old, true); }
+  return it;
+}
+function removeItem(it) { world.removeBody(it.body); scene.remove(it.mesh); it.mesh.geometry.dispose(); items = items.filter(i => i !== it); }
+// Frozen debris: leaves the physics world, keeps its mesh as scenery. Oldest frozen pieces are removed past the cap.
+let frozen = [];
+function freezeOrRemove(it, force = false) {
+  world.removeBody(it.body); items = items.filter(i => i !== it);
+  if (!P.freezeSettled && !force) { scene.remove(it.mesh); it.mesh.geometry.dispose(); return; }
+  it.mesh.position.copy(it.body.position); it.mesh.quaternion.copy(it.body.quaternion);
+  frozen.push({ mesh: it.mesh, kind: it.kind, born: it.born ?? simT });
+  while (frozen.length > P.maxDebris) { const f = frozen.shift(); scene.remove(f.mesh); f.mesh.geometry.dispose(); }
+}
+function box(w, h, d, x, y, z, mass, mat, kind, extra) {
+  const body = new CANNON.Body({ mass, shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)), position: new CANNON.Vec3(x, y, z) });
+  return add(body, new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat), kind, extra);
+}
+function cyl(r, h, x, y, z, mass, mat, kind, extra) {
+  const body = new CANNON.Body({ mass, shape: new CANNON.Cylinder(r, r, h, 12), position: new CANNON.Vec3(x, y, z) });
+  return add(body, new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), mat), kind, extra);
+}
+
+// ---------- scene setup ----------
+function buildScene() {
+  newWorld();
+  // crate wall
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++) box(0.9, 0.9, 0.9, -8 + c * 0.92 + (r % 2) * 0.46, 0.45 + r * 0.9, -2, P.crateMass, mats.crate, 'crate', { hp: P.crateHealth });
+  // barrel pyramid
+  let n = 0; for (let r = 0; r < 3; r++) for (let c = 0; c < 4 - r; c++) { cyl(0.32, 0.9, 3 + c * 0.7 + r * 0.35, 0.45 + r * 0.92, -3, 12, mats.barrel, 'barrel'); n++; }
+  // explosive barrels
+  for (const [x, z] of [[1, 3], [2.2, 4], [7, 1]]) cyl(0.32, 0.9, x, 0.45, z, 15, mats.boom, 'explosive', { hp: 1 });
+  // glass panes in frames
+  for (const [x, z] of [[-3, 5], [-1, 5], [10, -1]]) {
+    box(0.1, 2.4, 0.1, x - 1.0, 1.2, z, 0, mats.frame, 'static'); box(0.1, 2.4, 0.1, x + 1.0, 1.2, z, 0, mats.frame, 'static'); box(2.1, 0.1, 0.1, x, 2.4, z, 0, mats.frame, 'static');
+    box(1.9, 2.3, 0.03, x, 1.2, z, 0, mats.glass, 'glass', { w: 1.9, h: 2.3 });
+  }
+  // concrete cover blocks
+  box(3, 1.1, 0.6, 9, 0.55, 4, 0, mats.concrete, 'static');
+  ragdoll(new CANNON.Vec3(-4, 3, 2));
+}
+
+// ---------- ragdoll: boxes + cone-twist joints ----------
+function ragdoll(at) {
+  const s = 1, parts = {};
+  const part = (name, w, h, d, x, y, z, mass, m) => { parts[name] = box(w * s, h * s, d * s, at.x + x, at.y + y, at.z + z, mass, m, 'ragdoll').body; };
+  part('pelvis', 0.36, 0.2, 0.22, 0, 0, 0, 10, mats.cloth);
+  part('torso', 0.42, 0.5, 0.24, 0, 0.36, 0, 15, mats.cloth);
+  part('head', 0.22, 0.26, 0.24, 0, 0.78, 0, 5, mats.skin);
+  for (const sd of [-1, 1]) {
+    part('upperArm' + sd, 0.12, 0.32, 0.12, sd * 0.3, 0.42, 0, 2.5, mats.cloth); part('foreArm' + sd, 0.1, 0.3, 0.1, sd * 0.3, 0.1, 0, 2, mats.skin);
+    part('thigh' + sd, 0.16, 0.42, 0.16, sd * 0.11, -0.33, 0, 6, mats.cloth); part('shin' + sd, 0.13, 0.42, 0.13, sd * 0.11, -0.77, 0, 4, mats.cloth);
+  }
+  const joint = (a, b, pa, pb, angle, twist) => world.addConstraint(new CANNON.ConeTwistConstraint(parts[a], parts[b], { pivotA: new CANNON.Vec3(...pa), pivotB: new CANNON.Vec3(...pb), axisA: CANNON.Vec3.UNIT_Y, axisB: CANNON.Vec3.UNIT_Y, angle, twistAngle: twist, collideConnected: false }));
+  joint('pelvis', 'torso', [0, 0.1, 0], [0, -0.25, 0], 0.4, 0.3);
+  joint('torso', 'head', [0, 0.25, 0], [0, -0.13, 0], 0.5, 0.6);
+  for (const sd of [-1, 1]) {
+    joint('torso', 'upperArm' + sd, [sd * 0.24, 0.22, 0], [0, 0.16, 0], 1.6, 0.6);
+    joint('upperArm' + sd, 'foreArm' + sd, [0, -0.16, 0], [0, 0.15, 0], 1.2, 0.2);
+    joint('pelvis', 'thigh' + sd, [sd * 0.11, -0.1, 0], [0, 0.21, 0], 1.0, 0.4);
+    joint('thigh' + sd, 'shin' + sd, [0, -0.21, 0], [0, 0.21, 0], 1.2, 0.1);
+  }
+}
+
+// ---------- destruction ----------
+// Glass: random radial cracks from the impact point, rings that widen outward, cells clipped to the pane.
+function clipPoly(poly, x0, x1, y0, y1) {
+  const clip = (pts, inside, cut) => { const out = []; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], ia = inside(a), ib = inside(b); if (ia) out.push(a); if (ia !== ib) out.push(cut(a, b)); } return out; };
+  const lerpX = (a, b, x) => [x, a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])], lerpY = (a, b, y) => [a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]), y];
+  let p = poly;
+  p = clip(p, q => q[0] >= x0, (a, b) => lerpX(a, b, x0)); if (p.length < 3) return p;
+  p = clip(p, q => q[0] <= x1, (a, b) => lerpX(a, b, x1)); if (p.length < 3) return p;
+  p = clip(p, q => q[1] >= y0, (a, b) => lerpY(a, b, y0)); if (p.length < 3) return p;
+  return clip(p, q => q[1] <= y1, (a, b) => lerpY(a, b, y1));
+}
+function shatter(it, point, push) {
+  const b = it.body, W = it.w ?? 1.9, H = it.h ?? 2.3, c = b.position.clone();
+  removeItem(it);
+  // impact point in pane-local coordinates (pane faces Z)
+  const ix = THREE.MathUtils.clamp(point.x - c.x, -W / 2 + 0.05, W / 2 - 0.05), iy = THREE.MathUtils.clamp(point.y - c.y, -H / 2 + 0.05, H / 2 - 0.05);
+  const nRays = 9 + Math.floor(Math.random() * 6), rays = [];
+  for (let i = 0; i < nRays; i++) rays.push((i + 0.25 + Math.random() * 0.5) / nRays * Math.PI * 2);
+  const rings = [0.05 + Math.random() * 0.05]; while (rings[rings.length - 1] < 3.2) rings.push(rings[rings.length - 1] * (1.5 + Math.random() * 0.6) + 0.06);
+  const jit = (a, r) => { const rr = r * (0.85 + Math.random() * 0.3), aa = a + (Math.random() - 0.5) * 0.12; return [ix + Math.cos(aa) * rr, iy + Math.sin(aa) * rr]; };
+  const corner = {}; const pt = (i, j) => { const k = i % nRays + ',' + j; return corner[k] || (corner[k] = j === -1 ? [ix, iy] : jit(rays[i % nRays], rings[j])); };
+  for (let j = -1; j < rings.length - 1; j++) for (let i = 0; i < nRays; i++) {
+    const poly = j === -1 ? [pt(i, -1), pt(i, 0), pt(i + 1, 0)] : [pt(i, j), pt(i, j + 1), pt(i + 1, j + 1), pt(i + 1, j)];
+    const cl = clipPoly(poly, -W / 2, W / 2, -H / 2, H / 2);
+    if (cl.length < 3) continue;
+    let cx = 0, cy = 0; for (const [x, y] of cl) { cx += x; cy += y; } cx /= cl.length; cy /= cl.length;
+    let area = 0; for (let k = 0; k < cl.length; k++) { const a = cl[k], d = cl[(k + 1) % cl.length]; area += a[0] * d[1] - d[0] * a[1]; } area = Math.abs(area) / 2;
+    if (area < 0.0008) continue;
+    const shape = new THREE.Shape(cl.map(([x, y]) => new THREE.Vector2(x - cx, y - cy)));
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.012, bevelEnabled: false }); geo.translate(0, 0, -0.006);
+    const mesh = new THREE.Mesh(geo, mats.shard);
+    const ext = Math.sqrt(area) * 0.6, dist = Math.hypot(cx - ix, cy - iy);
+    const body = new CANNON.Body({ mass: dist > 0.9 && Math.random() < 0.45 ? 0 : Math.max(0.01, area * 2.5), shape: new CANNON.Box(new CANNON.Vec3(ext / 2, ext / 2, 0.006)), position: new CANNON.Vec3(c.x + cx, c.y + cy, c.z) });
+    if (body.mass === 0) { add(body, mesh, 'glassRemnant', { born: simT }); continue; } // stays in the frame until hit again
+    const sh = add(body, mesh, 'shard', { born: simT });
+    const k = 1 / (0.4 + dist * 2.2);
+    sh.body.velocity.set(push.x * 3 * k + (Math.random() - 0.5) * 0.5, push.y * k + (Math.random() - 0.3) * 0.6, push.z * 4.5 * k + (Math.random() - 0.5) * 0.4);
+    sh.body.angularVelocity.set(Math.random() * 8 - 4, Math.random() * 8 - 4, Math.random() * 8 - 4);
+  }
+}
+// Crate: swap the intact box for a pre-broken kit of planks and splinters
+function breakCrate(it, point, push) {
+  const b = it.body, c = b.position.clone(), q = new THREE.Quaternion(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w), v0 = b.velocity.clone();
+  removeItem(it);
+  const s = 0.9, t = 0.05, pieces = [];
+  for (const [nx, ny, nz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    // each face splits into 2-3 planks
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let k = 0; k < n; k++) {
+      const along = (k + 0.5) / n - 0.5, w = s / n * 0.95;
+      const size = nx ? [t, w, s * (0.6 + Math.random() * 0.4)] : ny ? [s * (0.6 + Math.random() * 0.4), t, w] : [w, s * (0.6 + Math.random() * 0.4), t];
+      const off = nx ? [nx * s / 2, along * s, 0] : ny ? [0, ny * s / 2, along * s] : [along * s, 0, nz * s / 2];
+      pieces.push({ size, off, normal: [nx, ny, nz], mat: mats.plank });
+    }
+  }
+  for (let k = 0; k < 4; k++) pieces.push({ size: [0.04, 0.04, 0.3 + Math.random() * 0.3], off: [(Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4], normal: [Math.random() - 0.5, 1, Math.random() - 0.5], mat: mats.splinter });
+  for (const pc of pieces) {
+    const off = new THREE.Vector3(...pc.off).applyQuaternion(q), n = new THREE.Vector3(...pc.normal).normalize().applyQuaternion(q);
+    const body = new CANNON.Body({ mass: 0.4, shape: new CANNON.Box(new CANNON.Vec3(pc.size[0] / 2, pc.size[1] / 2, pc.size[2] / 2)), position: new CANNON.Vec3(c.x + off.x, c.y + off.y, c.z + off.z) });
+    body.quaternion.set(q.x, q.y, q.z, q.w);
+    const p = add(body, new THREE.Mesh(new THREE.BoxGeometry(...pc.size), pc.mat), 'plank', { born: simT });
+    const away = new THREE.Vector3(c.x + off.x - point.x, c.y + off.y - point.y, c.z + off.z - point.z).normalize();
+    p.body.velocity.set(v0.x + n.x * 1.5 + away.x * 2 + push.x * 2, v0.y + n.y * 1.5 + 1.2 + away.y + push.y, v0.z + n.z * 1.5 + away.z * 2 + push.z * 2);
+    p.body.angularVelocity.set(Math.random() * 10 - 5, Math.random() * 10 - 5, Math.random() * 10 - 5);
+  }
+}
+function damageCrate(it, amount, point, push) {
+  it.hp -= amount;
+  if (it.hp <= 0) breakCrate(it, point, push);
+  else if (it.hp <= P.crateHealth / 2 && it.mesh.material !== mats.crateDamaged) it.mesh.material = mats.crateDamaged;
+}
+
+const flashes = [];
+function explode(pos, force = P.explosionForce, radius = P.explosionRadius) {
+  const L = new THREE.PointLight(0xffa040, 120, radius * 4, 1.6); L.position.set(pos.x, pos.y + 0.5, pos.z); scene.add(L); flashes.push({ L, t: 0.35 });
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.85 })); ball.position.set(pos.x, pos.y, pos.z); scene.add(ball); flashes.push({ ball, t: 0.35, r: radius });
+  const chain = [];
+  for (const it of [...items]) {
+    const b = it.body, d = b.position.distanceTo(pos);
+    if (d > radius) continue;
+    const fall = 1 - d / radius;
+    if (it.kind === 'glass') { shatter(it, pos, b.position.vsub(pos).unit().scale(2 * fall)); continue; }
+    if (it.kind === 'glassRemnant') { removeItem(it); continue; }
+    if (it.kind === 'crate' && fall > 0.25) { damageCrate(it, P.crateHealth * fall * 2.2, pos, b.position.vsub(pos).unit().scale(fall * 3)); if (!items.includes(it)) continue; }
+    if (it.kind === 'explosive' && !it.spent) { it.spent = true; chain.push(it); continue; }
+    if (b.mass === 0) continue;
+    const dir = b.position.vsub(pos); dir.y += 0.6; dir.normalize();
+    b.wakeUp(); b.applyImpulse(dir.scale(force * fall * Math.min(1.5, b.mass / 4 + 0.3)), b.position.vsub(dir.scale(0.1)));
+  }
+  for (const it of chain) setTimeout(() => { if (items.includes(it)) { const p = it.body.position.clone(); removeItem(it); explode(p); } }, 120 + Math.random() * 180);
+}
+let simT = 0;
+// glass breaks when something hits it hard enough
+function watchCrates() {
+  for (const it of items) if (it.kind === 'crate' && !it.listening) {
+    it.listening = true;
+    it.body.addEventListener('collide', e => { const v = Math.abs(e.contact.getImpactVelocityAlongNormal()); if (v > 9 && items.includes(it)) setTimeout(() => items.includes(it) && damageCrate(it, P.crateHealth, it.body.position, new CANNON.Vec3(0, 0, 0)), 0); });
+  }
+}
+function watchGlass() {
+  watchCrates();
+  for (const it of items) if (it.kind === 'glass' && !it.listening) {
+    it.listening = true;
+    it.body.addEventListener('collide', e => {
+      const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
+      if (v > P.glassStrength && items.includes(it)) { const other = e.body.velocity; setTimeout(() => items.includes(it) && shatter(it, e.body.position, new CANNON.Vec3(other.x * 0.2, 0, other.z * 0.2)), 0); }
+    });
+  }
+}
+
+// ---------- input ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let tool = 'shoot', paused = false, slow = false;
+const TOOLS = { shoot: 'Shoot', explode: 'Explode at point', crate: 'Drop crate', ragdoll: 'Drop ragdoll' };
+for (const [k, v] of Object.entries(TOOLS)) { const b = document.createElement('button'); b.textContent = v; b.dataset.k = k; b.onclick = () => { tool = k; [...$('tools').children].forEach(x => x.classList.toggle('on', x.dataset.k === k)); }; $('tools').appendChild(b); }
+$('tools').children[0].classList.add('on');
+let mouseNdc = new THREE.Vector2();
+function pick(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  return ray.intersectObjects([groundMesh, ...items.map(i => i.mesh)], false)[0];
+}
+renderer.domElement.addEventListener('pointermove', e => { const r = renderer.domElement.getBoundingClientRect(); mouseNdc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); });
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const hit = pick(e); if (!hit) return;
+  const p = new CANNON.Vec3(hit.point.x, hit.point.y, hit.point.z);
+  if (tool === 'shoot') {
+    const it = items.find(i => i.mesh === hit.object); if (!it) return;
+    const dir = ray.ray.direction;
+    if (it.kind === 'glass') { shatter(it, p, new CANNON.Vec3(dir.x, dir.y, dir.z)); return; }
+    if (it.kind === 'glassRemnant') { it.body.mass = 0.05; it.body.type = CANNON.Body.DYNAMIC; it.body.updateMassProperties(); it.kind = 'shard'; it.born = simT; it.body.velocity.set(dir.x * 2, 0, dir.z * 2); return; }
+    if (it.kind === 'crate') { damageCrate(it, 1, p, new CANNON.Vec3(dir.x, dir.y, dir.z)); if (!items.includes(it)) return; }
+    if (it.kind === 'explosive') { it.hp -= 0.5; if (it.hp <= 0 && !it.spent) { it.spent = true; const q = it.body.position.clone(); removeItem(it); explode(q); return; } }
+    if (it.body.mass > 0) { it.body.wakeUp(); it.body.applyImpulse(new CANNON.Vec3(dir.x, dir.y, dir.z).scale(P.bulletImpulse), p); }
+  } else if (tool === 'explode') explode(p);
+  else if (tool === 'crate') box(0.9, 0.9, 0.9, p.x, p.y + 6, p.z, P.crateMass, mats.crate, 'crate', { hp: P.crateHealth });
+  else ragdoll(new CANNON.Vec3(p.x, p.y + 3, p.z));
+  watchGlass();
+});
+function grenade() {
+  ray.setFromCamera(mouseNdc, camera);
+  const from = camera.position.clone().addScaledVector(ray.ray.direction, 2);
+  const g = new CANNON.Body({ mass: 0.4, shape: new CANNON.Sphere(0.08), position: new CANNON.Vec3(from.x, from.y, from.z), linearDamping: 0.05 });
+  const it = add(g, new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), mats.grenade), 'grenade', { fuse: 2.2 });
+  const v = ray.ray.direction.clone().multiplyScalar(18); v.y += 4; g.velocity.set(v.x, v.y, v.z);
+}
+addEventListener('keydown', e => { if (e.code === 'KeyG') grenade(); });
+$('bGrenade').onclick = grenade;
+$('bRagdoll').onclick = () => ragdoll(new CANNON.Vec3((Math.random() - 0.5) * 8, 5, (Math.random() - 0.5) * 6));
+$('bCrates').onclick = () => { for (let i = 0; i < 20; i++) box(0.9, 0.9, 0.9, (Math.random() - 0.5) * 10, 8 + i * 0.8, (Math.random() - 0.5) * 8, P.crateMass, mats.crate, 'crate', { hp: P.crateHealth }); };
+$('bReset').onclick = () => { buildScene(); watchGlass(); };
+$('bPause').onclick = () => { paused = !paused; $('bPause').classList.toggle('on', paused); $('bPause').textContent = paused ? 'Resume' : 'Pause'; };
+$('bSlow').onclick = () => { slow = !slow; $('bSlow').classList.toggle('on', slow); };
+
+// ---------- panel ----------
+for (const [k, a, b, step, unit] of SPEC) {
+  const row = document.createElement('div'); row.className = 'row';
+  row.innerHTML = `<label title="${unit || ''}">${k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())}</label>`;
+  if (a === 'bool') { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = P[k]; cb.style.accentColor = 'var(--acc)'; cb.onchange = () => { P[k] = cb.checked; persist(); }; row.appendChild(cb); $('params').appendChild(row); continue; }
+  const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: P[k] });
+  const v = document.createElement('span'); v.className = 'val'; v.textContent = P[k];
+  inp.oninput = () => { P[k] = parseFloat(inp.value); v.textContent = P[k]; world.gravity.set(0, -P.gravity, 0); world.solver.iterations = P.solverIterations; persist(); };
+  row.append(inp, v); $('params').appendChild(row);
+}
+
+// ---------- loop ----------
+function resize() { const w = main.clientWidth, h = main.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(main); resize();
+buildScene(); watchGlass();
+if (location.hash === '#autotest') window.__ph = { shootCrate: () => { const c = items.find(i => i.kind === 'crate'); if (c) { for (let k = 0; k < 5 && items.includes(c); k++) damageCrate(c, 1, c.body.position, new CANNON.Vec3(0, 0, -1)); } }, get frozen() { return frozen.length; }, shatterAt: (k) => { const g = items.filter(i => i.kind === 'glass')[k]; if (g) shatter(g, g.body.position.vadd(new CANNON.Vec3(0.3, 0.2, 0)), new CANNON.Vec3(0, 0, -1)); }, explode: (x, y, z) => explode(new CANNON.Vec3(x, y, z)), grenade, get items() { return items; }, shatterAll: () => items.filter(i => i.kind === 'glass').forEach(i => shatter(i, i.body.position, new CANNON.Vec3(0, 0, 1))) };
+const clock = new THREE.Clock(); let stepMs = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (!paused) {
+    const t0 = performance.now();
+    world.step(1 / 60, dt * (slow ? 0.2 : 1), 4);
+    stepMs = stepMs * 0.9 + (performance.now() - t0) * 0.1;
+    simT += dt * (slow ? 0.2 : 1);
+    for (const it of [...items]) {
+      if (it.kind === 'grenade') { it.fuse -= dt * (slow ? 0.2 : 1); if (it.fuse <= 0) { const p = it.body.position.clone(); removeItem(it); explode(p); continue; } }
+      if (it.kind === 'shard' || it.kind === 'plank') {
+        const life = it.kind === 'shard' ? P.shardLife : P.plankLife;
+        if (life > 0 && simT - it.born > life) { removeItem(it); continue; }
+        if (P.freezeSettled && simT - it.born > 1 && it.body.velocity.lengthSquared() < 0.01 && it.body.angularVelocity.lengthSquared() < 0.05) { it.still = (it.still || 0) + dt; if (it.still > 0.6) { freezeOrRemove(it); continue; } } else it.still = 0;
+      }
+      it.mesh.position.copy(it.body.position); it.mesh.quaternion.copy(it.body.quaternion);
+    }
+  }
+  for (let i = flashes.length - 1; i >= 0; i--) { const f = flashes[i]; f.t -= dt; if (f.L) f.L.intensity = 120 * Math.max(0, f.t / 0.35); if (f.ball) { const k = 1 - f.t / 0.35; f.ball.scale.setScalar(0.3 + k * f.r * 0.6); f.ball.material.opacity = 0.85 * (1 - k); } if (f.t <= 0) { if (f.L) scene.remove(f.L); if (f.ball) { scene.remove(f.ball); f.ball.geometry.dispose(); } flashes.splice(i, 1); } }
+  const awake = items.filter(i => i.body.mass > 0 && i.body.sleepState !== CANNON.Body.SLEEPING).length;
+  // frozen debris lifetimes
+  for (let i = frozen.length - 1; i >= 0; i--) { const f = frozen[i], life = f.kind === 'shard' ? P.shardLife : f.kind === 'plank' ? P.plankLife : 0; if (life > 0 && simT - f.born > life) { scene.remove(f.mesh); f.mesh.geometry.dispose(); frozen.splice(i, 1); } }
+  $('stats').textContent = `bodies ${world.bodies.length} · awake ${awake} · contacts ${world.contacts.length}\nconstraints ${world.constraints.length} · physics step ${stepMs.toFixed(2)} ms\nfrozen debris ${frozen.length} (scenery only, no physics cost)`;
+  orbit.update(); renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

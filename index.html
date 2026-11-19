@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>three.js FPS: labs</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#16181b; --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:28px 20px 48px; }
+  h1 { font-size:14px; letter-spacing:.14em; text-transform:uppercase; color:var(--acc); margin:0 0 4px; }
+  p.lead { color:var(--dim); margin:0 0 22px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); margin:22px 0 8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; }
+  a.card { display:block; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; color:inherit; text-decoration:none; }
+  a.card:hover { border-color:var(--acc); }
+  a.card b { display:block; margin-bottom:3px; }
+  a.card span { color:var(--dim); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>three.js FPS</h1>
+  <p class="lead">Tuning labs. Each one uses the shared code in <code>src/</code>; settings you export go in <code>data/</code>.</p>
+  <h2>Player</h2>
+  <div class="grid">
+    <a class="card" href="labs/movement/"><b>Movement</b><span>Speeds, jumps, slides, camera feel. Walk the test course.</span></a>
+    <a class="card" href="labs/gun/"><b>Weapon feel</b><span>Recoil, spread, ballistics, tracers on a shooting range.</span></a>
+    <a class="card" href="labs/viewmodel/"><b>Viewmodel</b><span>The first test: player view with a weapon in a plain room.</span></a>
+    <a class="card" href="labs/ui/"><b>UI / HUD</b><span>Crosshairs, health, ammo, hit markers, menus.</span></a>
+  </div>
+  <h2>World</h2>
+  <div class="grid">
+    <a class="card" href="labs/blockout/"><b>Level blockout</b><span>Lay out levels with blocks and kit pieces, then walk them.</span></a>
+    <a class="card" href="labs/terrain/"><b>Terrain</b><span>Heightmaps, layouts, biomes, grass and scatter.</span></a>
+    <a class="card" href="labs/assets/"><b>City assets</b><span>Props, vehicles, facades and weapons.</span></a>
+    <a class="card" href="labs/physics/"><b>Physics &amp; destruction</b><span>Breakable crates, shattering glass, debris.</span></a>
+  </div>
+  <h2>Actors</h2>
+  <div class="grid">
+    <a class="card" href="labs/ai/"><b>Enemy AI</b><span>Perception, cover, squads on a test yard.</span></a>
+    <a class="card" href="labs/characters/"><b>Characters</b><span>Rigs, armed locomotion, hit and death reactions, variation.</span></a>
+  </div>
+  <h2>Look &amp; sound</h2>
+  <div class="grid">
+    <a class="card" href="labs/effects/"><b>Effects &amp; post</b><span>Time of day, atmosphere, bloom, lenses, particles.</span></a>
+    <a class="card" href="labs/audio/"><b>Audio</b><span>Weapon, impact and footstep sounds, spaces, sample layers.</span></a>
+    <a class="card" href="labs/perf/"><b>Performance</b><span>Draw calls, merging and instancing at city scale.</span></a>
+  </div>
+</main>
+</body>
+</html>
