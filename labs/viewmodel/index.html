@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPS Prototype: Test Range</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  canvas { display: block; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; mix-blend-mode: difference; }
+  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; text-align: center; }
+  #overlay.hidden { display: none; }
+  #overlay h1 { font-size: 22px; letter-spacing: 0.15em; margin: 0 0 16px; }
+  #overlay p { margin: 4px 0; font-size: 13px; opacity: 0.85; }
+  #hud { position: fixed; left: 12px; bottom: 10px; color: #fff; font-size: 12px; mix-blend-mode: difference; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="crosshair"></div>
+<div id="hud">FPS --</div>
+<div id="overlay">
+  <div>
+    <h1>CLICK TO PLAY</h1>
+    <p>WASD move &middot; Mouse look &middot; Shift sprint &middot; Space jump</p>
+    <p>Left click fire &middot; Esc release mouse</p>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- Renderer ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = false;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ---------- World scene ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xd8d8d8);
+scene.fog = new THREE.Fog(0xd8d8d8, 30, 80);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 200);
+const EYE_HEIGHT = 1.7;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(12, 25, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 70 });
+scene.add(sun);
+
+// Grid texture: white tiles, black 1m lines, heavier lines every 4m
+function gridTexture(size = 512, cells = 4, bg = '#f2f2f2', fg = '#111') {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, size, size);
+  g.fillStyle = fg;
+  const step = size / cells;
+  for (let i = 0; i <= cells; i++) {
+    const w = (i % cells === 0) ? 6 : 2;
+    g.fillRect(i * step - w / 2, 0, w, size);
+    g.fillRect(0, i * step - w / 2, size, w);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+const ROOM = 40, WALL_H = 6;
+const floorTex = gridTexture(); floorTex.repeat.set(ROOM / 4, ROOM / 4);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, ROOM), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Walls
+const wallTex = gridTexture(512, 4, '#9a9a9a', '#1a1a1a');
+const solids = []; // axis-aligned boxes for collision: {min, max}
+function addBox(w, h, d, x, y, z, color = 0xffffff, textured = true) {
+  const tex = textured ? wallTex.clone() : null;
+  if (tex) { tex.needsUpdate = true; tex.repeat.set(Math.max(w, d) / 4, h / 4); }
+  const mat = new THREE.MeshStandardMaterial({ color, map: tex, roughness: 0.85 });
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+  solids.push(new THREE.Box3().setFromObject(m));
+  return m;
+}
+const half = ROOM / 2, T = 0.5;
+addBox(ROOM + T * 2, WALL_H, T, 0, WALL_H / 2, -half - T / 2);
+addBox(ROOM + T * 2, WALL_H, T, 0, WALL_H / 2, half + T / 2);
+addBox(T, WALL_H, ROOM, -half - T / 2, WALL_H / 2, 0);
+addBox(T, WALL_H, ROOM, half + T / 2, WALL_H / 2, 0);
+
+// Test props: crates, pillars, a low wall for cover, a step block
+addBox(2, 2, 2, -6, 1, -8, 0xffffff, false);
+addBox(2, 2, 2, -4, 1, -8, 0x222222, false);
+addBox(2, 2, 2, -5, 3, -8, 0xffffff, false);
+addBox(1, WALL_H, 1, 8, WALL_H / 2, -6, 0x111111, false);
+addBox(1, WALL_H, 1, 8, WALL_H / 2, 6, 0x111111, false);
+addBox(1, WALL_H, 1, -8, WALL_H / 2, 6, 0x111111, false);
+addBox(6, 1.1, 0.4, 0, 0.55, -4, 0xbbbbbb, false);
+addBox(4, 0.5, 4, 12, 0.25, 12, 0x333333, false);
+addBox(3, 1.0, 3, 12, 0.5, 15.5, 0x555555, false);
+
+// Shootable targets on the far wall (white disc with black rings)
+function targetTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  for (let i = 5; i > 0; i--) {
+    g.beginPath(); g.arc(128, 128, i * 25, 0, Math.PI * 2);
+    g.fillStyle = i % 2 ? '#111' : '#fff'; g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const targetMat = new THREE.MeshStandardMaterial({ map: targetTexture(), roughness: 0.7 });
+for (let i = -2; i <= 2; i++) {
+  const t = new THREE.Mesh(new THREE.CircleGeometry(0.9, 48), targetMat);
+  t.position.set(i * 4, 2.2, -half + 0.02);
+  scene.add(t);
+}
+
+// ---------- Weapon (separate scene so it never clips into walls) ----------
+const weaponScene = new THREE.Scene();
+const weaponCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10);
+weaponScene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 1.4));
+const wKey = new THREE.DirectionalLight(0xffffff, 1.5); wKey.position.set(1, 2, 1); weaponScene.add(wKey);
+
+const gunBlack = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.45, metalness: 0.6 });
+const gunGrey = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.6, metalness: 0.3 });
+const gunGrip = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
+
+const gun = new THREE.Group();
+const part = (geo, mat, x, y, z, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; gun.add(m); return m; };
+part(new THREE.BoxGeometry(0.06, 0.07, 0.34), gunBlack, 0, 0.02, -0.05);          // slide
+part(new THREE.BoxGeometry(0.055, 0.04, 0.30), gunGrey, 0, -0.03, -0.03);          // frame
+part(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 12), gunBlack, 0, 0.02, -0.235, Math.PI / 2); // muzzle
+part(new THREE.BoxGeometry(0.052, 0.16, 0.08), gunGrip, 0, -0.12, 0.07, -0.25);    // grip
+part(new THREE.BoxGeometry(0.012, 0.06, 0.07), gunGrey, 0, -0.07, -0.01);          // trigger guard
+part(new THREE.BoxGeometry(0.01, 0.015, 0.01), gunGrey, 0, 0.062, -0.2);           // front sight
+part(new THREE.BoxGeometry(0.04, 0.015, 0.012), gunGrey, 0, 0.062, 0.1);           // rear sight
+// simple hand block wrapping the grip
+part(new THREE.BoxGeometry(0.075, 0.11, 0.1), new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 1 }), 0, -0.15, 0.1, -0.25);
+
+const flash = new THREE.Mesh(
+  new THREE.SphereGeometry(0.035, 10, 8),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 })
+);
+flash.position.set(0, 0.02, -0.27);
+flash.visible = false;
+gun.add(flash);
+
+const GUN_REST = new THREE.Vector3(0.16, -0.17, -0.38);
+gun.position.copy(GUN_REST);
+gun.rotation.y = 0.04;
+weaponScene.add(gun);
+
+// ---------- Controls ----------
+const player = { pos: new THREE.Vector3(0, 0, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true };
+const RADIUS = 0.35, WALK = 5, SPRINT = 8.5, JUMP = 5.2, GRAVITY = 16, SENS = 0.0022;
+const keys = {};
+let locked = false;
+
+const overlay = document.getElementById('overlay');
+overlay.addEventListener('click', () => {
+  try { const p = renderer.domElement.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+});
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === renderer.domElement;
+  overlay.classList.toggle('hidden', locked);
+  if (!locked) for (const k in keys) keys[k] = false;
+});
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  player.yaw -= e.movementX * SENS;
+  player.pitch = Math.max(-1.55, Math.min(1.55, player.pitch - e.movementY * SENS));
+  sway.x += e.movementX * 0.00004; sway.y -= e.movementY * 0.00004;
+});
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ---------- Firing ----------
+const raycaster = new THREE.Raycaster();
+const decalMat = new THREE.MeshBasicMaterial({ color: 0x000000, polygonOffset: true, polygonOffsetFactor: -4 });
+const decalGeo = new THREE.CircleGeometry(0.05, 10);
+const decals = [];
+let recoil = 0, flashTime = 0, fireCooldown = 0;
+const sway = new THREE.Vector2();
+
+addEventListener('mousedown', e => {
+  if (!locked || e.button !== 0 || fireCooldown > 0) return;
+  fireCooldown = 0.14;
+  recoil = 1;
+  flashTime = 0.05;
+  player.pitch = Math.min(1.55, player.pitch + 0.012);
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hit = raycaster.intersectObjects(scene.children, false).find(h => h.face);
+  if (hit) {
+    const d = new THREE.Mesh(decalGeo, decalMat);
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    d.position.copy(hit.point).addScaledVector(n, 0.005);
+    d.lookAt(hit.point.clone().add(n));
+    scene.add(d); decals.push(d);
+    if (decals.length > 150) scene.remove(decals.shift());
+  }
+});
+
+// ---------- Collision ----------
+const tmpBox = new THREE.Box3();
+function collides(p) {
+  tmpBox.min.set(p.x - RADIUS, p.y, p.z - RADIUS);
+  tmpBox.max.set(p.x + RADIUS, p.y + EYE_HEIGHT, p.z + RADIUS);
+  for (const s of solids) if (tmpBox.intersectsBox(s)) return s;
+  return null;
+}
+const STEP = 0.55;
+function moveAxis(axis, amt) {
+  if (!amt) return;
+  player.pos[axis] += amt;
+  const s = collides(player.pos);
+  if (!s) return;
+  // try stepping up onto low ledges
+  if (player.grounded && s.max.y - player.pos.y <= STEP) {
+    const oldY = player.pos.y;
+    player.pos.y = s.max.y + 0.001;
+    if (!collides(player.pos)) return;
+    player.pos.y = oldY;
+  }
+  player.pos[axis] -= amt;
+  player.vel[axis] = 0;
+}
+
+// ---------- Loop ----------
+const clock = new THREE.Clock();
+const hud = document.getElementById('hud');
+let bobT = 0, fpsAcc = 0, fpsFrames = 0;
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), wish = new THREE.Vector3();
+
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  // Movement
+  fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  right.set(-fwd.z, 0, fwd.x);
+  wish.set(0, 0, 0);
+  if (locked) {
+    if (keys.KeyW) wish.add(fwd);
+    if (keys.KeyS) wish.sub(fwd);
+    if (keys.KeyD) wish.add(right);
+    if (keys.KeyA) wish.sub(right);
+  }
+  const speed = keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK;
+  if (wish.lengthSq()) wish.normalize().multiplyScalar(speed);
+  const accel = player.grounded ? 14 : 3;
+  player.vel.x += (wish.x - player.vel.x) * Math.min(1, accel * dt);
+  player.vel.z += (wish.z - player.vel.z) * Math.min(1, accel * dt);
+
+  if (locked && keys.Space && player.grounded) { player.vel.y = JUMP; player.grounded = false; }
+  player.vel.y -= GRAVITY * dt;
+
+  moveAxis('x', player.vel.x * dt);
+  moveAxis('z', player.vel.z * dt);
+
+  // Vertical
+  player.pos.y += player.vel.y * dt;
+  player.grounded = false;
+  if (player.pos.y <= 0) { player.pos.y = 0; player.vel.y = 0; player.grounded = true; }
+  const s = collides(player.pos);
+  if (s) {
+    if (player.vel.y <= 0) { player.pos.y = s.max.y + 0.001; player.grounded = true; }
+    else player.pos.y = s.min.y - EYE_HEIGHT - 0.001;
+    player.vel.y = 0;
+  }
+  // ground probe for standing on boxes
+  if (!player.grounded) {
+    player.pos.y -= 0.02;
+    if (collides(player.pos)) player.grounded = true;
+    player.pos.y += 0.02;
+  }
+
+  // Camera
+  const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+  if (player.grounded) bobT += dt * hSpeed * 1.6;
+  const bobAmt = player.grounded ? Math.min(hSpeed / SPRINT, 1) : 0;
+  camera.position.set(player.pos.x, player.pos.y + EYE_HEIGHT + Math.abs(Math.sin(bobT)) * 0.04 * bobAmt, player.pos.z);
+  camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+
+  // Weapon motion: bob, sway, recoil
+  sway.multiplyScalar(Math.pow(0.0005, dt));
+  recoil = Math.max(0, recoil - dt * 9);
+  fireCooldown = Math.max(0, fireCooldown - dt);
+  gun.position.set(
+    GUN_REST.x + Math.sin(bobT) * 0.012 * bobAmt - sway.x,
+    GUN_REST.y - Math.abs(Math.cos(bobT)) * 0.01 * bobAmt + sway.y - (player.grounded ? 0 : 0.01),
+    GUN_REST.z + recoil * 0.06
+  );
+  gun.rotation.x = recoil * 0.25;
+  flashTime -= dt;
+  flash.visible = flashTime > 0;
+  if (flash.visible) flash.scale.setScalar(0.8 + Math.random() * 0.6);
+
+  // Render world, then weapon on top
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(weaponScene, weaponCam);
+
+  fpsAcc += dt; fpsFrames++;
+  if (fpsAcc > 0.5) { hud.textContent = 'FPS ' + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
+  requestAnimationFrame(tick);
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = weaponCam.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix(); weaponCam.updateProjectionMatrix();
+});
+
+tick();
+</script>
+</body>
+</html>

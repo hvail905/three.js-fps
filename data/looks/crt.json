@@ -1,0 +1,31 @@
+{
+  "kind": "lookSettings",
+  "version": 1,
+  "name": "CRT",
+  "look": {
+    "autoAtmosphere": true,
+    "exposureTrim": 0,
+    "fogTrim": 1,
+    "exposure": 1,
+    "fogDensity": 0.003,
+    "bloomStrength": 0.35,
+    "bloomRadius": 0.4,
+    "bloomThreshold": 0.85,
+    "chromatic": 0,
+    "particleScale": 1,
+    "bloomTrim": 0.51,
+    "sunElevation": 11,
+    "sunAzimuth": 139,
+    "contrast": 1.05,
+    "saturation": 1.5,
+    "temperature": 0.01,
+    "tint": 0.46,
+    "vignette": 0.37,
+    "grain": 0.05,
+    "lens": "crt",
+    "lensAmount": 0.36,
+    "dof": false,
+    "focus": 23,
+    "aperture": 0.6
+  }
+}

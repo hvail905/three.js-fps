@@ -1,0 +1,31 @@
+{
+  "kind": "lookSettings",
+  "version": 1,
+  "name": "Body cam",
+  "look": {
+    "autoAtmosphere": true,
+    "exposureTrim": 0,
+    "fogTrim": 1,
+    "exposure": 1,
+    "fogDensity": 0.003,
+    "bloomStrength": 0.35,
+    "bloomRadius": 0.4,
+    "bloomThreshold": 0.85,
+    "chromatic": 0,
+    "particleScale": 1,
+    "bloomTrim": 0.51,
+    "sunElevation": 58,
+    "sunAzimuth": 139,
+    "contrast": 1.05,
+    "saturation": 1.5,
+    "temperature": 0,
+    "tint": 0.55,
+    "vignette": 0.59,
+    "grain": 0.05,
+    "lens": "bodycam",
+    "lensAmount": 0.31,
+    "dof": true,
+    "focus": 21,
+    "aperture": 0.55
+  }
+}

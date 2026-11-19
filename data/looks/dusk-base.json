@@ -1,0 +1,31 @@
+{
+  "kind": "lookSettings",
+  "version": 1,
+  "name": "Dusk base",
+  "look": {
+    "autoAtmosphere": true,
+    "exposureTrim": 0,
+    "fogTrim": 1,
+    "exposure": 1,
+    "fogDensity": 0.003,
+    "bloomStrength": 0.35,
+    "bloomRadius": 0.4,
+    "bloomThreshold": 0.85,
+    "chromatic": 0,
+    "particleScale": 1,
+    "bloomTrim": 0.57,
+    "sunElevation": -11,
+    "sunAzimuth": 123,
+    "contrast": 1.05,
+    "saturation": 1.5,
+    "temperature": 0,
+    "tint": 0,
+    "vignette": 0.25,
+    "grain": 0.02,
+    "lens": "none",
+    "lensAmount": 0.25,
+    "dof": false,
+    "focus": 14,
+    "aperture": 0.6
+  }
+}

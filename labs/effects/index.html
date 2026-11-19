@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Effects & Post-Processing Lab</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#000; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  main { flex:1; position:relative; min-width:0; }
+  aside { width:310px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 24px; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:12px 0 4px; }
+  .row { display:grid; grid-template-columns:104px 1fr 42px; gap:6px; align-items:center; margin:3px 0; }
+  .row label { color:var(--dim); font-size:12px; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); } .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
+  button, select { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 7px; font:inherit; cursor:pointer; }
+  button.on { background:var(--acc); color:#111; font-weight:600; }
+  #stat { position:absolute; left:10px; top:10px; background:rgba(15,17,20,.8); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:12px ui-monospace, Menlo, monospace; color:var(--dim); pointer-events:none; }
+  #help { position:absolute; left:10px; bottom:10px; background:rgba(15,17,20,.8); border:1px solid var(--line); border-radius:6px; padding:5px 8px; color:var(--dim); font-size:12px; pointer-events:none; }
+  @media (max-width: 760px) { #app { flex-direction:column; } aside { width:100%; height:45vh; border-left:none; } main { height:55vh; flex:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <main><div id="stat"></div><div id="help">Drag to orbit · scroll to zoom · click a surface to spawn a bullet impact there</div></main>
+  <aside>
+    <h1>Effects & post</h1>
+    <div class="row"><label>Look preset</label><select id="preset" style="grid-column:2 / span 2"></select></div>
+    <div id="params"></div>
+    <h2>Trigger effects</h2>
+    <div class="grid" id="fxBtns"></div>
+    <h2>Continuous effects</h2>
+    <div class="grid" id="fxToggles"></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px"><button id="bCopy">Copy settings</button><button id="bReset">Reset look</button></div>
+  </aside>
+</div>
+<script type="module">
+import { createPropLibrary } from '../../src/assets/props.js';
+import { createVehicleLibrary } from '../../src/assets/vehicles.js';
+import { createFacadeLibrary } from '../../src/assets/facades.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import { ParticleSystem, EFFECTS } from '../../src/fx/particles.js';
+
+const $ = id => document.getElementById(id);
+const D2R = THREE.MathUtils.degToRad;
+
+// ---------- look settings ----------
+const BLOOM_TRIM_MAX = 0.6; // locked: auto bloom never exceeds 0.6× its curve
+const DEFAULT = { autoAtmosphere: true, exposureTrim: 0, bloomTrim: 0.55, fogTrim: 1, sunElevation: 35, sunAzimuth: 200, exposure: 1.0, fogDensity: 0.003, bloomStrength: 0.35, bloomRadius: 0.4, bloomThreshold: 0.85, contrast: 1.05, saturation: 1.0, temperature: 0, tint: 0, vignette: 0.25, grain: 0.03, chromatic: 0.0, particleScale: 1, lens: 'none', lensAmount: 0.6, dof: false, focus: 14, aperture: 0.6 };
+// Your saved looks live in data/looks/*.json; built-in examples follow.
+const LOOK_FILES = import.meta.glob('../../data/looks/*.json', { eager: true, import: 'default' });
+const PRESETS = {
+  ...Object.fromEntries(Object.values(LOOK_FILES).map(f => [f.name + ' (yours)', f.look])),
+  'Clean day': {},
+  'Golden hour': { sunElevation: 6, sunAzimuth: 250, exposure: 1.1, fogDensity: 0.008, bloomStrength: 0.5, contrast: 1.1, saturation: 1.15, temperature: 0.35, vignette: 0.3 },
+  'Gritty night': { sunElevation: -12, exposure: 1.35, fogDensity: 0.012, bloomStrength: 0.9, bloomThreshold: 0.6, contrast: 1.15, saturation: 0.8, temperature: -0.25, tint: 0.05, vignette: 0.45, grain: 0.07, chromatic: 0.0025 },
+  'Smog': { sunElevation: 22, fogDensity: 0.03, bloomStrength: 0.25, contrast: 0.92, saturation: 0.65, temperature: 0.2, tint: 0.08, vignette: 0.3, grain: 0.04 },
+  'Rainy dusk': { sunElevation: 2, sunAzimuth: 150, exposure: 1.05, fogDensity: 0.018, bloomStrength: 0.7, bloomThreshold: 0.7, contrast: 1.05, saturation: 0.75, temperature: -0.3, vignette: 0.35, grain: 0.05, rain: true },
+
+};
+const SPEC = [
+  ['Time & atmosphere', [['autoAtmosphere', 'bool'], ['sunElevation', -20, 80, 1, '°'], ['sunAzimuth', 0, 360, 1, '°'], ['exposureTrim', -0.5, 0.5, 0.01, '', 'auto'], ['bloomTrim', 0, BLOOM_TRIM_MAX, 0.01, '×', 'auto'], ['fogTrim', 0, 4, 0.05, '×', 'auto'], ['fogDensity', 0, 0.05, 0.001, '', 'manual']]],
+  ['Bloom', [['bloomStrength', 0, 2, 0.01, '', 'manual'], ['bloomRadius', 0, 1, 0.01], ['bloomThreshold', 0, 1, 0.01, '', 'manual']]],
+  ['Color grade', [['exposure', 0.3, 2.5, 0.01, '', 'manual'], ['contrast', 0.6, 1.6, 0.01], ['saturation', 0, 2, 0.01], ['temperature', -1, 1, 0.01], ['tint', -1, 1, 0.01]]],
+  ['Lens & camera', [['lens', ['none', 'bodycam', 'crt', 'vhs', 'nightvision', 'thermal', 'pixel', 'cinematic']], ['lensAmount', 0, 1, 0.01], ['dof', 'bool'], ['focus', 2, 60, 0.5, 'm'], ['aperture', 0.05, 2, 0.05]]],
+  ['Lens', [['vignette', 0, 1, 0.01], ['grain', 0, 0.2, 0.005], ['chromatic', 0, 0.01, 0.0005]]],
+  ['Particles', [['particleScale', 0.3, 2, 0.05, 'size ×']]],
+];
+let L = { ...DEFAULT };
+try { Object.assign(L, JSON.parse(localStorage.getItem('vfxlab.v2') || '{}')); } catch (e) {}
+const persist = () => { try { localStorage.setItem('vfxlab.v2', JSON.stringify(L)); } catch (e) {} };
+
+// ---------- renderer & scene ----------
+const main = document.querySelector('main');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.info.autoReset = false;
+main.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
+camera.position.set(14, 6, 18);
+const orbit = new OrbitControls(camera, renderer.domElement); orbit.target.set(0, 3, -2); orbit.enableDamping = true; orbit.maxPolarAngle = Math.PI * 0.49;
+
+const sky = new Sky(); sky.scale.setScalar(1500); scene.add(sky);
+const su = sky.material.uniforms; su.turbidity.value = 6; su.rayleigh.value = 1.5; su.mieCoefficient.value = 0.005; su.mieDirectionalG.value = 0.8;
+const hemi = new THREE.HemisphereLight(0xdfe8f0, 0x50483e, 1.0); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 150 }); sun.shadow.bias = -0.0005;
+scene.add(sun, sun.target);
+scene.fog = new THREE.FogExp2(0xbfc9d1, L.fogDensity);
+
+// street from the kits
+const KP = createPropLibrary(THREE), KV = createVehicleLibrary(THREE), KF = createFacadeLibrary(THREE);
+const street = new THREE.Group(); scene.add(street);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ color: 0x3d4045, roughness: 0.85 })); road.rotation.x = -Math.PI / 2; road.receiveShadow = true; street.add(road);
+const walk = new THREE.Mesh(new THREE.BoxGeometry(60, 0.15, 4), new THREE.MeshStandardMaterial({ color: 0xa8a49c, roughness: 0.95 })); walk.position.set(0, 0.075, -4); walk.receiveShadow = true; street.add(walk);
+const place = (obj, x, y, z, ry = 0) => { obj.position.set(x, y, z); obj.rotation.y = ry; street.add(obj); return obj; };
+let fx = -18;
+for (const f of ['brownstone', 'tenement', 'cornerShop', 'tenement']) { const o = KF.build({ prop: f, params: f === 'tenement' && fx > 0 ? { wallColor: '#6e5a48', signText: 'PAWN', awningColor: '#1f4f8a' } : {} }); o.updateMatrixWorld(true); const w = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()).x; place(o, fx + w / 2, 0.15, -6); fx += w; }
+const lamps = [];
+for (const x of [-14, 0, 14]) lamps.push(place(KP.build({ prop: 'streetLight', params: { lampOn: true } }), x, 0.15, -2.6, Math.PI));
+place(KP.build({ prop: 'trashCan' }), -6, 0.15, -3);
+place(KP.build({ prop: 'fireHydrant' }), 4, 0.15, -2.8);
+place(KV.build({ prop: 'sedan' }), -9, 0, 0.6, Math.PI / 2);
+const burner = place(KV.build({ prop: 'sedan', params: { condition: 'burned' } }), 6, 0, 2.5, -1.2);
+place(KV.build({ prop: 'van' }), 16, 0, 0.6, Math.PI / 2);
+place(KP.build({ prop: 'manhole' }), -2, 0, 4);
+place(KP.build({ prop: 'jerseyBarrier', params: { count: 2 } }), 0, 0, 9, 0.2);
+street.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+const lampLights = []; street.traverse(o => { if (o.isPointLight) lampLights.push(o); });
+const lampMats = new Set(); for (const l of lamps) l.traverse(o => { if (o.isMesh && o.material.userData.role === 'lamp') lampMats.add(o.material); });
+
+// ---------- post-processing ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), L.bloomStrength, L.bloomRadius, L.bloomThreshold);
+composer.addPass(bloom);
+const grade = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uContrast: { value: 1 }, uSat: { value: 1 }, uTemp: { value: 0 }, uTint: { value: 0 }, uVig: { value: 0 }, uGrain: { value: 0 }, uChroma: { value: 0 }, uTime: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uContrast, uSat, uTemp, uTint, uVig, uGrain, uChroma, uTime; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)) + uTime) * 43758.5453); }
+    void main(){
+      vec2 dir = vUv - 0.5;
+      vec3 col = vec3(texture2D(tDiffuse, vUv + dir * uChroma).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - dir * uChroma).b);
+      col *= vec3(1.0 + uTemp * 0.18, 1.0 + uTint * 0.12, 1.0 - uTemp * 0.18);
+      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(vec3(l), col, uSat);
+      col = (col - 0.18) * uContrast + 0.18;
+      col *= 1.0 - uVig * smoothstep(0.3, 0.85, length(dir) * 1.3);
+      col += (hash(vUv * 731.0) - 0.5) * uGrain;
+      gl_FragColor = vec4(max(col, 0.0), 1.0);
+    }`,
+});
+composer.addPass(grade);
+const bokeh = new BokehPass(scene, camera, { focus: 14, aperture: 0.0006, maxblur: 0.012 }); bokeh.enabled = false;
+composer.passes.splice(composer.passes.indexOf(bloom), 0, bokeh);
+composer.addPass(new OutputPass());
+// display-space lens / camera emulation
+const lens = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uMode: { value: 0 }, uAmt: { value: 0.6 }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform int uMode; uniform float uAmt, uTime; uniform vec2 uRes; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+    float lum(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
+    vec2 barrel(vec2 uv, float k){ vec2 c = uv * 2.0 - 1.0; float r2 = dot(c, c); c *= (1.0 + k * r2) / (1.0 + k * 1.2); return c * 0.5 + 0.5; }
+    bool outside(vec2 uv){ return uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0; }
+    void main(){
+      vec2 uv = vUv; vec3 col; float a = uAmt;
+      if (uMode == 1) { // body cam: strong barrel distortion, edge chroma, crushed corners, sensor noise
+        float k = 0.55 * a;
+        vec2 ur = barrel(uv, k * 1.04), ug = barrel(uv, k), ub = barrel(uv, k * 0.96);
+        col = vec3(texture2D(tDiffuse, ur).r, texture2D(tDiffuse, ug).g, texture2D(tDiffuse, ub).b);
+        vec2 c = uv - 0.5; col *= 1.0 - smoothstep(0.35, 0.78, length(c * vec2(1.0, 0.85))) * 0.85 * a;
+        col = mix(col, vec3(lum(col)), 0.2 * a) + (h(uv * uRes + uTime) - 0.5) * 0.06 * a;
+        col = (col - 0.5) * (1.0 + 0.15 * a) + 0.5;
+      } else if (uMode == 2) { // CRT: curvature, scanlines, aperture grille, flicker
+        vec2 u2 = barrel(uv, 0.18 * a);
+        if (outside(u2)) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        col = texture2D(tDiffuse, u2).rgb;
+        col *= 0.78 + 0.22 * sin(u2.y * uRes.y * 1.5708) * a + (1.0 - a) * 0.22;
+        float m = mod(gl_FragCoord.x, 3.0);
+        vec3 mask = m < 1.0 ? vec3(1.0, 0.7, 0.7) : m < 2.0 ? vec3(0.7, 1.0, 0.7) : vec3(0.7, 0.7, 1.0);
+        col *= mix(vec3(1.0), mask, 0.6 * a) * (1.0 + 0.25 * a);
+        col *= 0.97 + 0.03 * sin(uTime * 60.0);
+        vec2 c = u2 - 0.5; col *= 1.0 - smoothstep(0.42, 0.72, length(c)) * a;
+      } else if (uMode == 3) { // VHS: line wobble, chroma bleed, tracking band, washed color
+        float wob = sin(uv.y * 40.0 + uTime * 3.0) * 0.0015 * a + (h(vec2(floor(uv.y * 240.0), floor(uTime * 20.0))) - 0.5) * 0.004 * a;
+        float band = smoothstep(0.0, 0.02, abs(fract(uv.y + uTime * 0.08) - 0.9)); wob += (1.0 - band) * 0.02 * a;
+        vec2 u2 = vec2(uv.x + wob, uv.y);
+        col = vec3(texture2D(tDiffuse, u2 + vec2(0.006 * a, 0.0)).r, texture2D(tDiffuse, u2).g, texture2D(tDiffuse, u2 - vec2(0.006 * a, 0.0)).b);
+        col = mix(col, vec3(lum(col)), 0.35 * a) * vec3(1.05, 1.0, 0.92);
+        col += (h(uv * uRes + uTime) - 0.5) * 0.12 * a + (1.0 - band) * 0.25 * a;
+      } else if (uMode == 4) { // night vision: amplified luminance, green phosphor, noise, tube vignette
+        float l = lum(texture2D(tDiffuse, uv).rgb);
+        l = pow(l * (2.5 + 3.0 * a), 0.8) + (h(uv * uRes + uTime) - 0.5) * 0.18 * a;
+        col = vec3(0.12, 1.0, 0.25) * l;
+        vec2 c = (uv - 0.5) * vec2(uRes.x / uRes.y, 1.0); col *= 1.0 - smoothstep(0.38, 0.5, length(c));
+      } else if (uMode == 5) { // thermal-style false color (luminance, not real heat)
+        float l = clamp(lum(texture2D(tDiffuse, uv).rgb) * 1.6, 0.0, 1.0);
+        vec3 c1 = mix(vec3(0.0, 0.0, 0.15), vec3(0.45, 0.0, 0.6), smoothstep(0.0, 0.3, l));
+        c1 = mix(c1, vec3(0.95, 0.2, 0.1), smoothstep(0.3, 0.6, l)); c1 = mix(c1, vec3(1.0, 0.9, 0.2), smoothstep(0.6, 0.85, l)); c1 = mix(c1, vec3(1.0), smoothstep(0.85, 1.0, l));
+        col = mix(texture2D(tDiffuse, uv).rgb, c1, a);
+      } else if (uMode == 6) { // pixelated
+        float px = 1.0 + floor(10.0 * a); vec2 cell = px / uRes;
+        col = texture2D(tDiffuse, (floor(uv / cell) + 0.5) * cell).rgb;
+        col = floor(col * (6.0 + (1.0 - a) * 26.0)) / (6.0 + (1.0 - a) * 26.0);
+      } else if (uMode == 7) { // cinematic: 2.39:1 letterbox, slight halation
+        float target = uRes.x / 2.39 / uRes.y, bar = (1.0 - target) * 0.5 * a;
+        if (uv.y < bar || uv.y > 1.0 - bar) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        col = texture2D(tDiffuse, uv).rgb;
+        vec3 glow = texture2D(tDiffuse, uv + vec2(0.002, 0.0)).rgb + texture2D(tDiffuse, uv - vec2(0.002, 0.0)).rgb;
+        col += max(glow * 0.5 - 0.7, 0.0) * vec3(1.0, 0.35, 0.2) * a;
+      } else col = texture2D(tDiffuse, uv).rgb;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+composer.addPass(lens);
+const LENS_MODES = ['none', 'bodycam', 'crt', 'vhs', 'nightvision', 'thermal', 'pixel', 'cinematic'];
+const camOverlay = document.createElement('div');
+Object.assign(camOverlay.style, { position: 'absolute', right: '14px', top: '12px', font: '600 14px ui-monospace, Menlo, monospace', color: '#fff', textShadow: '0 0 3px #000', pointerEvents: 'none', display: 'none', textAlign: 'right' });
+main.appendChild(camOverlay);
+
+// ---------- particles & effect state ----------
+const ps = new ParticleSystem(scene);
+const flashes = [];
+function flashLight(pos, color, intensity, dur) { const l = new THREE.PointLight(color, intensity, 25, 1.6); l.position.copy(pos); scene.add(l); flashes.push({ l, t: dur, dur, i: intensity }); }
+const firePos = new THREE.Vector3(6, 0.9, 2.5), steamPos = new THREE.Vector3(-2, 0.05, 4), muzzlePos = new THREE.Vector3(-4, 1.4, 6);
+const fireLight = new THREE.PointLight(0xff7a2a, 0, 14, 1.6); fireLight.position.copy(firePos).add(new THREE.Vector3(0, 0.8, 0)); scene.add(fireLight);
+const cont = { rain: false, fire: true, steam: true };
+const TRIGGERS = {
+  'Muzzle flash': () => { const d = new THREE.Vector3(1, 0.05, -0.3).normalize(); EFFECTS.muzzle(ps, muzzlePos, d); flashLight(muzzlePos, 0xffc070, 30, 0.06); },
+  'Sparks': () => EFFECTS.sparks(ps, new THREE.Vector3(-9, 0.9, 0.6), new THREE.Vector3(0, 0.6, 1).normalize()),
+  'Concrete hit': () => EFFECTS.dust(ps, new THREE.Vector3(-3, 1.6, -5.9), new THREE.Vector3(0, 0, 1)),
+  'Smoke grenade': () => EFFECTS.smoke(ps, new THREE.Vector3(2, 0.2, 7), 2),
+  'Explosion': () => { const p = new THREE.Vector3(10, 0.6, 7); EFFECTS.explosion(ps, p); flashLight(p, 0xff9a40, 200, 0.5); },
+  'Full burst': () => { let n = 0; const id = setInterval(() => { TRIGGERS['Muzzle flash'](); if (++n > 9) clearInterval(id); }, 90); },
+};
+for (const [name, f] of Object.entries(TRIGGERS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = f; $('fxBtns').appendChild(b); }
+for (const k of Object.keys(cont)) { const b = document.createElement('button'); b.textContent = { rain: 'Rain', fire: 'Car fire', steam: 'Steam vent' }[k]; b.classList.toggle('on', cont[k]); b.onclick = () => { cont[k] = !cont[k]; b.classList.toggle('on', cont[k]); }; $('fxToggles').appendChild(b); }
+
+// click a surface -> bullet impact with material-appropriate effect
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
+renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(street, true).find(h => h.face); if (!hit) return;
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  const m = Array.isArray(hit.object.material) ? hit.object.material[0] : hit.object.material;
+  const metal = (m.metalness || 0) > 0.35;
+  if (metal) { EFFECTS.sparks(ps, hit.point, n); flashLight(hit.point.clone().addScaledVector(n, 0.2), 0xffc070, 4, 0.05); }
+  else EFFECTS.dust(ps, hit.point, n, 1, m.color ? m.color.getHex() : 0xb8b0a0);
+});
+
+// ---------- auto atmosphere: values keyed by sun elevation, anchored on the golden-hour look ----------
+const ATMO_KEYS = [ // elevation, exposure, bloomStrength, bloomThreshold, fogDensity
+  [-15, 1.3, 0.7, 0.62, 0.012], [-4, 1.1, 0.4, 0.72, 0.011], [3, 0.85, 0.12, 0.84, 0.009], [9, 0.82, 0.11, 0.83, 0.008],
+  [20, 0.92, 0.16, 0.86, 0.005], [45, 1.0, 0.2, 0.88, 0.0035], [80, 1.0, 0.22, 0.9, 0.003],
+];
+function atmo(el) {
+  const K = ATMO_KEYS; if (el <= K[0][0]) return K[0].slice(1); if (el >= K[K.length - 1][0]) return K[K.length - 1].slice(1);
+  for (let i = 0; i < K.length - 1; i++) if (el <= K[i + 1][0]) { const t = (el - K[i][0]) / (K[i + 1][0] - K[i][0]), sm = t * t * (3 - 2 * t); return K[i].slice(1).map((v, j) => v + (K[i + 1][j + 1] - v) * sm); }
+}
+
+// ---------- apply settings ----------
+const sunDir = new THREE.Vector3();
+let autoNow = {};
+function renderAutoReadout() { const el = document.getElementById('autoReadout'); if (el && autoNow.exposure !== undefined) el.textContent = L.autoAtmosphere ? `auto now: exposure ${autoNow.exposure.toFixed(2)} · bloom ${autoNow.bloomStrength.toFixed(2)} / thr ${autoNow.bloomThreshold.toFixed(2)} · fog ${autoNow.fogDensity.toFixed(4)}` : ''; }
+function apply() {
+  const el = L.sunElevation, night = THREE.MathUtils.clamp((-el + 2) / 10, 0, 1);
+  sunDir.setFromSphericalCoords(1, D2R(90 - el), D2R(L.sunAzimuth));
+  su.sunPosition.value.copy(sunDir);
+  sun.position.copy(sunDir).multiplyScalar(60); sun.target.position.set(0, 0, 0);
+  sun.intensity = 2.6 * THREE.MathUtils.clamp(el / 15, 0, 1) + 0.05;
+  const warm = THREE.MathUtils.clamp(1 - el / 25, 0, 1);
+  sun.color.setRGB(1, 1 - warm * 0.25, 1 - warm * 0.5);
+  hemi.intensity = THREE.MathUtils.lerp(1.0, 0.08, night);
+  sky.visible = el > -8;
+  scene.background = new THREE.Color().setRGB(0.02, 0.025, 0.04);
+  const fogCol = new THREE.Color(0xbfc9d1).lerp(new THREE.Color(0xd9a77a), warm * 0.4 * (1 - night)).lerp(new THREE.Color(0x0a0d14), night);
+  let ex = L.exposure, bs = L.bloomStrength, bt = L.bloomThreshold, fd = L.fogDensity;
+  L.bloomTrim = Math.min(BLOOM_TRIM_MAX, Math.max(0, L.bloomTrim));
+  if (L.autoAtmosphere) { const [e2, b2, t2, f2] = atmo(el); ex = e2 + L.exposureTrim; bs = b2 * L.bloomTrim; bt = t2; fd = f2 * L.fogTrim; }
+  // tame the sun disc near the horizon (main source of flare)
+  su.mieCoefficient.value = THREE.MathUtils.lerp(0.002, 0.005, THREE.MathUtils.clamp(el / 30, 0, 1)); su.turbidity.value = THREE.MathUtils.lerp(8, 5, THREE.MathUtils.clamp(el / 30, 0, 1));
+  scene.fog.color.copy(fogCol); scene.fog.density = fd;
+  autoNow = { exposure: ex, bloomStrength: bs, bloomThreshold: bt, fogDensity: fd };
+  for (const l of lampLights) l.intensity = THREE.MathUtils.lerp(0, 28, Math.max(night, warm * 0.4));
+  for (const m of lampMats) m.emissiveIntensity = THREE.MathUtils.lerp(0.2, 1.6, night);
+  renderer.toneMappingExposure = ex;
+  bloom.strength = bs; bloom.radius = L.bloomRadius; bloom.threshold = bt;
+  lens.uniforms.uMode.value = LENS_MODES.indexOf(L.lens); lens.uniforms.uAmt.value = L.lensAmount;
+  bokeh.enabled = !!L.dof; bokeh.uniforms.focus.value = L.focus; bokeh.uniforms.aperture.value = L.aperture * 0.001;
+  camOverlay.style.display = L.lens === 'bodycam' || L.lens === 'vhs' ? 'block' : 'none';
+  renderAutoReadout();
+  const u = grade.uniforms; u.uContrast.value = L.contrast; u.uSat.value = L.saturation; u.uTemp.value = L.temperature; u.uTint.value = L.tint; u.uVig.value = L.vignette; u.uGrain.value = L.grain; u.uChroma.value = L.chromatic;
+  ps.scale = L.particleScale;
+}
+
+// ---------- panel ----------
+const labelOf = k => k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+function renderPanel() {
+  const wrap = $('params'); wrap.innerHTML = '';
+  for (const [group, rows] of SPEC) {
+    const h = document.createElement('h2'); h.textContent = group; wrap.appendChild(h);
+    if (group === 'Time & atmosphere') { const n = document.createElement('div'); n.id = 'autoReadout'; n.style.cssText = 'color:var(--dim);font:11px ui-monospace,monospace;margin:2px 0 4px'; wrap.appendChild(n); }
+    for (const [k, a, b, step, unit, only] of rows) {
+      if (only === 'auto' && !L.autoAtmosphere) continue;
+      if (only === 'manual' && L.autoAtmosphere) continue;
+      const row = document.createElement('div'); row.className = 'row';
+      row.innerHTML = `<label title="${unit || ''}">${labelOf(k)}</label>`;
+      if (a === 'bool') { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!L[k]; cb.onchange = () => { L[k] = cb.checked; if (k === 'autoAtmosphere') renderPanel(); apply(); persist(); }; row.appendChild(cb); }
+      else if (Array.isArray(a)) { const sel = document.createElement('select'); sel.style.gridColumn = '2 / span 2'; sel.innerHTML = a.map(o => `<option>${o}</option>`).join(''); sel.value = L[k]; sel.onchange = () => { L[k] = sel.value; apply(); persist(); }; row.appendChild(sel); }
+      else {
+        const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: L[k] });
+        const val = document.createElement('span'); val.className = 'val'; val.textContent = L[k];
+        inp.oninput = () => { L[k] = parseFloat(inp.value); val.textContent = L[k]; apply(); persist(); };
+        row.append(inp, val);
+      }
+      wrap.appendChild(row);
+    }
+  }
+  renderAutoReadout();
+}
+$('preset').innerHTML = '<option value="">Custom</option>' + Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('');
+$('preset').onchange = () => { const p = PRESETS[$('preset').value]; if (!p) return; L = { ...DEFAULT }; for (const [k, v] of Object.entries(p)) if (k in L) L[k] = v; cont.rain = !!p.rain; [...$('fxToggles').children][0].classList.toggle('on', cont.rain); renderPanel(); apply(); persist(); };
+$('bReset').onclick = () => { L = { ...DEFAULT }; renderPanel(); apply(); persist(); };
+$('bCopy').onclick = async () => { const t = JSON.stringify({ kind: 'lookSettings', version: 1, look: L }, null, 2); try { await navigator.clipboard.writeText(t); $('bCopy').textContent = 'Copied'; setTimeout(() => ($('bCopy').textContent = 'Copy settings'), 1200); } catch (e) { prompt('Copy:', t); } };
+renderPanel(); apply();
+
+// ---------- loop ----------
+function resize() { const w = main.clientWidth, h = main.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); lens.uniforms.uRes.value.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio()); }
+new ResizeObserver(resize).observe(main); resize();
+if (location.hash === '#autotest') window.__vfx = { TRIGGERS, ps, setPreset: n => { $('preset').value = n; $('preset').onchange(); }, cont };
+const clock = new THREE.Clock(); let fpsT = 0, frames = 0, fps = 0, fireAcc = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  fireAcc += dt;
+  while (fireAcc > 1 / 30) {
+    fireAcc -= 1 / 30;
+    if (cont.fire) EFFECTS.fireTick(ps, firePos);
+    if (cont.steam) EFFECTS.steamTick(ps, steamPos);
+    if (cont.rain) EFFECTS.rainTick(ps, orbit.target);
+  }
+  fireLight.intensity = cont.fire ? 25 + Math.random() * 15 : 0;
+  for (let i = flashes.length - 1; i >= 0; i--) { const f = flashes[i]; f.t -= dt; f.l.intensity = f.i * Math.max(0, f.t / f.dur); if (f.t <= 0) { scene.remove(f.l); flashes.splice(i, 1); } }
+  ps.update(dt);
+  grade.uniforms.uTime.value = (grade.uniforms.uTime.value + dt) % 100; lens.uniforms.uTime.value = grade.uniforms.uTime.value;
+  if (camOverlay.style.display === 'block') { const d = new Date(); camOverlay.textContent = L.lens === 'vhs' ? `PLAY ▶  ${d.toLocaleTimeString()}` : `CAM 04 · ${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)} · ● REC`; }
+  orbit.update();
+  renderer.info.reset(); composer.render();
+  frames++; fpsT += dt; if (fpsT > 0.5) { fps = frames / fpsT; frames = 0; fpsT = 0; $('stat').textContent = `${fps.toFixed(0)} fps · ${ps.count} particles · ${renderer.info.render.calls} draw calls`; }
+});
+</script>
+</body>
+</html>

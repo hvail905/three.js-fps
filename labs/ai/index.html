@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enemy AI Sandbox</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#111; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:flex; height:100%; }
+  main { flex:1; position:relative; min-width:0; }
+  aside { width:300px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:10px 12px 24px; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:12px 0 4px; }
+  .row { display:grid; grid-template-columns:110px 1fr 42px; gap:6px; align-items:center; margin:3px 0; }
+  .row label { color:var(--dim); font-size:12px; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); }
+  .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  button, select { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; cursor:pointer; }
+  button.on { background:var(--acc); color:#111; font-weight:600; }
+  .chk { display:flex; gap:6px; align-items:center; color:var(--dim); font-size:12px; margin:3px 0; }
+  .chk input { accent-color:var(--acc); }
+  #labels { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+  .lbl { position:absolute; transform:translate(-50%,-100%); font:11px ui-monospace, Menlo, monospace; background:rgba(15,17,20,.8); padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .lbl .bar { height:3px; background:#333; margin-top:2px; } .lbl .bar i { display:block; height:3px; background:var(--acc); }
+  #hud { position:absolute; left:10px; top:10px; background:rgba(15,17,20,.85); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:12px/1.5 ui-monospace, Menlo, monospace; pointer-events:none; }
+  #help { position:absolute; left:10px; bottom:10px; background:rgba(15,17,20,.85); border:1px solid var(--line); border-radius:8px; padding:7px 10px; color:var(--dim); font-size:12px; pointer-events:none; }
+  #feed { font:11px/1.5 ui-monospace, Menlo, monospace; color:var(--dim); max-height:140px; overflow:hidden; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:9; }
+  #modal.show { display:flex; }
+  #modal .box { width:min(600px,92vw); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  #modal textarea { width:100%; height:260px; background:#111317; color:var(--text); border:1px solid var(--line); border-radius:6px; font:12px ui-monospace, Menlo, monospace; padding:8px; }
+  #modal .actions { display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <main>
+    <div id="labels"></div>
+    <div id="hud"></div>
+    <div id="help">WASD move · Shift run (noisy) · C crouch · click to shoot at a point or enemy · right-drag / scroll to move the camera</div>
+  </main>
+  <aside>
+    <h1>Enemy AI</h1>
+    <div class="grid">
+      <button id="bPause">Pause</button>
+      <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+      <button id="bReset">Reset</button>
+      <button id="bAdd">Add enemy</button>
+      <button id="bLoad">Load blockout</button>
+      <button id="bHeal">Revive player</button>
+    </div>
+    <h2>Overlays</h2>
+    <div id="toggles"></div>
+    <h2>Enemy tuning</h2>
+    <div id="params"></div>
+    <div class="grid" style="margin-top:6px"><button id="bCopy">Copy tuning</button><button id="bDefaults">Defaults</button></div>
+    <h2>Events</h2>
+    <div id="feed"></div>
+  </aside>
+</div>
+<div id="modal"><div class="box">
+  <p id="mMsg" style="margin:0 0 8px;color:var(--dim)"></p>
+  <textarea id="mText" spellcheck="false"></textarea>
+  <div class="actions"><button id="mApply">Apply</button><button id="mClose">Close</button></div>
+</div></div>
+<script type="module">
+import { createPropLibrary } from '../../src/assets/props.js';
+import { createVehicleLibrary } from '../../src/assets/vehicles.js';
+import { createFacadeLibrary } from '../../src/assets/facades.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { makeWorld, stepWorld, DEFAULT_AI, AI_TICK } from '../../src/sim/ai.js';
+import { yardMap } from './maps.js';
+
+const $ = id => document.getElementById(id);
+let P = { ...DEFAULT_AI };
+try { Object.assign(P, JSON.parse(localStorage.getItem('ailab.params') || '{}')); } catch (e) {}
+const persist = () => { try { localStorage.setItem('ailab.params', JSON.stringify(P)); } catch (e) {} };
+const SHOW = { cones: true, paths: true, labels: true, cover: false, noise: true, grid: false };
+
+// ---------- three ----------
+const main = document.querySelector('main');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.shadowMap.enabled = true;
+main.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1d21);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+camera.position.set(0, 48, 34);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+orbit.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+orbit.enableDamping = true; orbit.maxPolarAngle = Math.PI * 0.45;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(20, 50, 15); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 150 }); scene.add(sun);
+
+const STATE_COL = { patrol: 0x4ade80, investigate: 0xfacc15, chase: 0xf97316, cover: 0xef4444, attack: 0xdc2626, search: 0xa855f7, dead: 0x444444 };
+let W, root = new THREE.Group(); scene.add(root);
+let agentViews = [], playerView, groundMesh, coverPts, gridLines;
+const dyn = new THREE.Group(); scene.add(dyn); // per-frame lines
+
+function buildScene(map) {
+  scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  root = new THREE.Group(); scene.add(root);
+  groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(map.width, map.depth), new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 1 }));
+  groundMesh.rotation.x = -Math.PI / 2; groundMesh.receiveShadow = true; root.add(groundMesh);
+  const tall = new THREE.MeshStandardMaterial({ color: 0x5f646b, roughness: 0.9 }), low = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.8 });
+  for (const o of map.obstacles) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, o.d), o.h < 1.4 ? low : tall);
+    m.position.set(o.x, o.h / 2, o.z); m.castShadow = m.receiveShadow = true; root.add(m);
+  }
+  // nav grid overlay (blocked cells)
+  const pts = [];
+  for (let r = 0; r < W.rows; r++) for (let c = 0; c < W.cols; c++) if (W.blocked[r * W.cols + c]) pts.push(W.x0 + (c + 0.5) * W.cell, 0.03, W.z0 + (r + 0.5) * W.cell);
+  gridLines = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)), new THREE.PointsMaterial({ color: 0xff5555, size: 0.18 }));
+  root.add(gridLines);
+  const cp = []; for (const [c, r] of W.coverCells) cp.push(W.x0 + (c + 0.5) * W.cell, 0.04, W.z0 + (r + 0.5) * W.cell);
+  coverPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(cp, 3)), new THREE.PointsMaterial({ color: 0x60a5fa, size: 0.22 }));
+  root.add(coverPts);
+  // agents
+  agentViews = W.agents.map(() => makeAgentView());
+  playerView = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.0, 4, 10), new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.6 }));
+  playerView.castShadow = true; root.add(playerView);
+  $('labels').innerHTML = '';
+  for (const v of agentViews) $('labels').appendChild(v.label);
+}
+function makeAgentView() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.0, 4, 10), new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.6 }));
+  body.castShadow = true; g.add(body);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.5), new THREE.MeshStandardMaterial({ color: 0x111111 })); nose.position.set(0, 0.45, 0.4); body.add(nose);
+  const cone = new THREE.Mesh(new THREE.CircleGeometry(1, 32, 0, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }));
+  cone.rotation.x = -Math.PI / 2; cone.position.y = 0.05; g.add(cone);
+  root.add(g);
+  const label = document.createElement('div'); label.className = 'lbl'; label.innerHTML = '<span></span><div class="bar"><i></i></div>';
+  return { g, body, cone, label, fovBuilt: -1 };
+}
+
+function reset(map = currentMap) {
+  currentMap = map;
+  W = makeWorld({ ...map, seed: 7 });
+  buildScene(map); feed.length = 0; renderFeed();
+}
+let currentMap = yardMap();
+
+// ---------- input -> player commands ----------
+const keys = {};
+addEventListener('keydown', e => { if (e.target.tagName === 'TEXTAREA') return; keys[e.code] = true; });
+addEventListener('keyup', e => { keys[e.code] = false; });
+let pendingFire = null, addMode = false;
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(groundMesh)[0]; if (!hit) return;
+  if (addMode) {
+    const a = { ...W.agents[0] };
+    const spawn = [hit.point.x, hit.point.z];
+    W.agents.push(Object.assign(JSON.parse(JSON.stringify(W.agents[0] || {})), { id: W.agents.length, x: spawn[0], z: spawn[1], hp: 100, alive: true, state: 'patrol', stateT: 0, awareness: 0, path: [], pathGoal: null, cover: null, route: [spawn, [spawn[0] + 5, spawn[1]], [spawn[0] + 5, spawn[1] + 5]], routeIdx: 0, lastKnown: null, searchPts: [] }));
+    const v = makeAgentView(); agentViews.push(v); $('labels').appendChild(v.label);
+    addMode = false; $('bAdd').classList.remove('on'); void a;
+    return;
+  }
+  pendingFire = { x: hit.point.x, z: hit.point.z };
+});
+
+// ---------- tuning panel ----------
+const SPEC = [['viewDist', 5, 60, 1, 'm'], ['fov', 30, 200, 1, '°'], ['reaction', 0.2, 3, 0.05, '×'], ['hearing', 0, 3, 0.05, '×'], ['walkSpeed', 0.5, 4, 0.1], ['runSpeed', 1, 8, 0.1], ['accuracy', 0, 1, 0.01], ['damage', 1, 40, 1], ['fireInterval', 0.05, 1, 0.01, 's'], ['burst', 1, 12, 1], ['preferredRange', 3, 30, 0.5, 'm'], ['coverSearch', 4, 30, 0.5, 'm'], ['callout', 0, 50, 1, 'm'], ['searchTime', 2, 40, 1, 's'], ['aggression', 0, 1, 0.05]];
+const labelOf = k => k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+function renderParams() {
+  const wrap = $('params'); wrap.innerHTML = '';
+  for (const [k, a, b, step, unit] of SPEC) {
+    const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = `<label title="${unit || ''}">${labelOf(k)}</label>`;
+    const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: P[k] });
+    const val = document.createElement('span'); val.className = 'val'; val.textContent = P[k];
+    inp.oninput = () => { P[k] = parseFloat(inp.value); val.textContent = P[k]; persist(); };
+    row.append(inp, val); wrap.appendChild(row);
+  }
+  const t = $('toggles'); t.innerHTML = '';
+  for (const k of Object.keys(SHOW)) {
+    const l = document.createElement('label'); l.className = 'chk';
+    l.innerHTML = `<input type="checkbox" ${SHOW[k] ? 'checked' : ''}> ${{ cones: 'Vision cones', paths: 'Paths & goals', labels: 'State labels', cover: 'Cover candidates', noise: 'Noise & shots', grid: 'Nav grid (blocked)' }[k]}`;
+    l.querySelector('input').onchange = e => { SHOW[k] = e.target.checked; };
+    t.appendChild(l);
+  }
+}
+renderParams();
+let paused = false;
+$('bPause').onclick = () => { paused = !paused; $('bPause').textContent = paused ? 'Resume' : 'Pause'; $('bPause').classList.toggle('on', paused); };
+$('bReset').onclick = () => reset();
+$('bAdd').onclick = () => { addMode = !addMode; $('bAdd').classList.toggle('on', addMode); };
+$('bHeal').onclick = () => { W.player.hp = 100; W.player.alive = true; };
+$('bDefaults').onclick = () => { P = { ...DEFAULT_AI }; renderParams(); persist(); };
+$('bCopy').onclick = async () => { const t = JSON.stringify({ kind: 'enemyAI', version: 1, params: P }, null, 2); try { await navigator.clipboard.writeText(t); } catch (e) { modal('Copy manually:', t, null); } };
+let modalApply = null;
+function modal(msg, text, apply) { $('mMsg').textContent = msg; $('mText').value = text; modalApply = apply; $('mApply').style.display = apply ? '' : 'none'; $('modal').classList.add('show'); }
+$('mClose').onclick = () => $('modal').classList.remove('show');
+$('mApply').onclick = () => { try { modalApply($('mText').value); $('modal').classList.remove('show'); } catch (err) { $('mMsg').textContent = 'Could not load: ' + err.message; } };
+
+// ---------- blockout layout -> AI map ----------
+const KITS = { props: createPropLibrary(THREE), vehicles: createVehicleLibrary(THREE), facades: createFacadeLibrary(THREE) };
+$('bLoad').onclick = () => modal('Paste a layout copied from the Level Blockout Editor. Blocks, walls, cover and assets become obstacles; markers become spawns and patrol points.', '', text => {
+  const layout = JSON.parse(text);
+  if (!Array.isArray(layout.objects)) throw new Error('missing "objects"');
+  const obstacles = [], spawns = [], patrol = []; let playerSpawn = null;
+  const minmax = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  const grow = (x, z) => { minmax.x0 = Math.min(minmax.x0, x); minmax.x1 = Math.max(minmax.x1, x); minmax.z0 = Math.min(minmax.z0, z); minmax.z1 = Math.max(minmax.z1, z); };
+  for (const r of layout.objects) {
+    const [x, y, z] = r.pos; grow(x, z);
+    if (r.type === 'marker') {
+      if (r.kind === 'enemySpawn') spawns.push([x, z]);
+      else if (r.kind === 'patrolPoint' || r.kind === 'coverPoint' || r.kind === 'objective') patrol.push([x, z]);
+      else if (r.kind === 'playerSpawn') playerSpawn = [x, z];
+      continue;
+    }
+    let obj;
+    try {
+      if (r.type === 'prim') {
+        const p = r.params;
+        if (['ramp', 'stairs', 'platform'].includes(r.kind) || (p.h || 0) + y < 0.5) continue; // walkable
+        obj = new THREE.Mesh(r.kind === 'pillar' ? new THREE.CylinderGeometry(p.r, p.r, p.h) : new THREE.BoxGeometry(p.w, p.h, p.d));
+        obj.position.y = p.h / 2;
+      } else obj = KITS[r.kit].build({ prop: r.kind, params: r.params || {} });
+    } catch (e) { continue; }
+    const holder = new THREE.Group(); holder.add(obj); holder.position.set(x, y, z); holder.rotation.y = THREE.MathUtils.degToRad(r.rotY || 0); holder.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(holder);
+    if (r.type === 'kit') KITS[r.kit].dispose(obj); else obj.geometry.dispose();
+    if (bb.isEmpty() || bb.max.y < 0.5) continue;
+    const s = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3());
+    if (s.x * s.z < 0.05) continue; // ignore thin poles for navigation
+    obstacles.push({ x: c.x, z: c.z, w: s.x, d: s.z, h: bb.max.y }); grow(bb.min.x, bb.min.z); grow(bb.max.x, bb.max.z);
+  }
+  if (!spawns.length) throw new Error('the layout needs at least one Enemy spawn marker');
+  const cx = (minmax.x0 + minmax.x1) / 2, cz = (minmax.z0 + minmax.z1) / 2;
+  const width = Math.ceil(minmax.x1 - minmax.x0 + 10), depth = Math.ceil(minmax.z1 - minmax.z0 + 10);
+  const sh = ([x, z]) => [x - cx, z - cz];
+  reset({ width, depth, obstacles: obstacles.map(o => ({ ...o, x: o.x - cx, z: o.z - cz })), spawns: spawns.map(sh), patrol: patrol.map(sh), playerSpawn: sh(playerSpawn || [minmax.x0 + 2, minmax.z0 + 2]) });
+  camera.position.set(0, Math.max(width, depth) * 0.8, Math.max(width, depth) * 0.55); orbit.target.set(0, 0, 0);
+});
+
+// ---------- feed & HUD ----------
+const feed = [];
+function renderFeed() { $('feed').innerHTML = feed.slice(-12).reverse().map(f => `<div>${f}</div>`).join(''); }
+
+// ---------- per-frame drawing ----------
+const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+const tracerMat = { player: new THREE.LineBasicMaterial({ color: 0x60a5fa }), hit: new THREE.LineBasicMaterial({ color: 0xff3b3b }), miss: new THREE.LineBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.6 }) };
+function clearDyn() { for (const c of [...dyn.children]) { dyn.remove(c); c.geometry.dispose(); } }
+const tmpV = new THREE.Vector3();
+function draw() {
+  clearDyn();
+  const p = W.player;
+  playerView.position.set(p.x, p.crouch ? 0.6 : 0.85, p.z); playerView.scale.y = p.crouch ? 0.65 : 1;
+  playerView.material.color.set(p.alive ? 0x3b82f6 : 0x333333);
+  gridLines.visible = SHOW.grid; coverPts.visible = SHOW.cover;
+  W.agents.forEach((a, i) => {
+    const v = agentViews[i]; if (!v) return;
+    v.g.position.set(a.x, 0, a.z); v.g.rotation.y = 0;
+    v.body.position.y = a.crouch ? 0.6 : 0.85; v.body.scale.y = a.crouch ? 0.65 : 1; v.body.rotation.y = a.yaw;
+    v.body.material.color.set(STATE_COL[a.state] || 0xffffff);
+    v.cone.visible = SHOW.cones && a.alive;
+    if (v.fovBuilt !== P.fov) { v.cone.geometry.dispose(); const f = THREE.MathUtils.degToRad(P.fov); v.cone.geometry = new THREE.CircleGeometry(1, 32, -f / 2 + Math.PI / 2, f); v.fovBuilt = P.fov; }
+    v.cone.scale.setScalar(P.viewDist); v.cone.rotation.z = a.yaw - Math.PI; // circle is in XY, rotated flat
+    v.cone.material.color.setHSL(0.33 - 0.33 * a.awareness, 0.9, 0.5); v.cone.material.opacity = 0.08 + a.awareness * 0.12;
+    if (SHOW.paths && a.alive && a.path.length) {
+      const pts = [new THREE.Vector3(a.x, 0.1, a.z), ...a.path.map(([x, z]) => new THREE.Vector3(x, 0.1, z))];
+      dyn.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: STATE_COL[a.state] })));
+    }
+    if (SHOW.paths && a.alive && a.lastKnown && a.state !== 'patrol') {
+      dyn.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a.lastKnown[0], 0.05, a.lastKnown[1] - 0.5), new THREE.Vector3(a.lastKnown[0], 0.05, a.lastKnown[1] + 0.5), new THREE.Vector3(a.lastKnown[0] - 0.5, 0.05, a.lastKnown[1]), new THREE.Vector3(a.lastKnown[0] + 0.5, 0.05, a.lastKnown[1])]), new THREE.LineBasicMaterial({ color: 0xff5555 })));
+    }
+    if (SHOW.paths && a.seeing && a.alive) dyn.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a.x, 1.5, a.z), new THREE.Vector3(p.x, 1.2, p.z)]), lineMat));
+    // label
+    v.label.style.display = SHOW.labels && a.alive ? '' : 'none';
+    if (SHOW.labels && a.alive) {
+      tmpV.set(a.x, 2.2, a.z).project(camera);
+      const r = renderer.domElement.getBoundingClientRect();
+      v.label.style.left = ((tmpV.x + 1) / 2) * r.width + 'px'; v.label.style.top = ((1 - tmpV.y) / 2) * r.height + 'px';
+      v.label.querySelector('span').textContent = `#${a.id} ${a.label} · ${a.hp}`;
+      v.label.querySelector('i').style.width = Math.round(a.awareness * 100) + '%';
+    }
+  });
+  if (SHOW.noise) {
+    for (const n of W.noises) {
+      const age = W.t - n.t, rr = n.r * Math.min(1, age * 2 + 0.1);
+      const pts = []; for (let k = 0; k <= 48; k++) { const t = (k / 48) * Math.PI * 2; pts.push(new THREE.Vector3(n.x + Math.cos(t) * rr, 0.08, n.z + Math.sin(t) * rr)); }
+      dyn.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: n.kind === 'gunshot' ? 0xffffff : 0x9aa0a6, transparent: true, opacity: Math.max(0, 0.5 - age * 0.5) })));
+    }
+    for (const s of W.shots) dyn.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(s.from[0], 1.4, s.from[1]), new THREE.Vector3(s.to[0], 1.2, s.to[1])]), s.by === 'player' ? tracerMat.player : s.hit ? tracerMat.hit : tracerMat.miss));
+  }
+  // HUD + feed
+  const counts = {}; for (const a of W.agents) counts[a.state] = (counts[a.state] || 0) + 1;
+  $('hud').innerHTML = `Player HP <b style="color:${p.hp > 50 ? '#4ade80' : p.hp > 20 ? '#facc15' : '#ef4444'}">${p.hp}</b>${p.alive ? '' : ' · DOWN'} · ${p.crouch ? 'crouched' : p.running ? 'running' : p.moving ? 'walking' : 'still'}<br>` +
+    Object.entries(counts).map(([k, n]) => `<span style="color:#${(STATE_COL[k] || 0xffffff).toString(16).padStart(6, '0')}">${k} ${n}</span>`).join(' · ');
+  for (const e of W.events) if (!shownEvents.has(e)) {
+    shownEvents.add(e);
+    feed.push(`${e.t.toFixed(1)}s ${e.type === 'spotted' ? `#${e.id} spotted you` : e.type === 'hit' ? `you hit #${e.id}` : e.type === 'kill' ? `#${e.id} down` : 'you are down'}`);
+    renderFeed();
+  }
+}
+const shownEvents = new WeakSet();
+
+// ---------- loop ----------
+function resize() { const w = main.clientWidth, h = main.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(main);
+reset(); resize();
+if (location.hash === '#autotest') window.__ai = { get W() { return W; }, keys, fire: (x, z) => { pendingFire = { x, z }; } };
+const clock = new THREE.Clock(); let acc = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (!paused) {
+    acc += dt * parseFloat($('speed').value);
+    let n = 0;
+    while (acc >= AI_TICK && n++ < 12) {
+      const cmd = { moveX: (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), moveZ: (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0), run: !!(keys.ShiftLeft || keys.ShiftRight), crouch: !!keys.KeyC, fire: pendingFire };
+      pendingFire = null;
+      stepWorld(W, cmd, P);
+      acc -= AI_TICK;
+    }
+  }
+  orbit.update(); draw();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

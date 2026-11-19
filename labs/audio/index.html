@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Lab</title>
+<style>
+  :root { --panel:#1e2125; --line:#2e3238; --text:#e6e6e6; --dim:#9aa0a6; --acc:#f2c14e; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:#141619; color:var(--text); font:13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #app { display:grid; grid-template-columns:1fr 380px; height:100%; }
+  #cards { overflow-y:auto; padding:14px; display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; align-content:start; }
+  #side { background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:12px; }
+  h1 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--acc); margin:0 0 8px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:12px 0 4px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .card .head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
+  .card .title { font-weight:600; } .card .grp { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+  .row { display:grid; grid-template-columns:92px 1fr 46px; gap:6px; align-items:center; margin:3px 0; }
+  .row label { color:var(--dim); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row input[type=range] { width:100%; accent-color:var(--acc); } .row .val { font:12px ui-monospace, Menlo, monospace; text-align:right; }
+  button, select { background:#2a2e34; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 9px; font:inherit; cursor:pointer; }
+  button.play { background:var(--acc); color:#111; font-weight:600; border-color:var(--acc); }
+  .btns { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  #pad { width:100%; aspect-ratio:1; background:#101215; border:1px solid var(--line); border-radius:8px; display:block; cursor:crosshair; touch-action:none; }
+  .hint { color:var(--dim); font-size:12px; margin:6px 0; }
+  #start { position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:9; }
+  #start .box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 26px; text-align:center; cursor:pointer; }
+  #start h1 { font-size:18px; }
+  .bal { display:flex; height:10px; border-radius:3px; overflow:hidden; margin-top:8px; background:#2a2e34; }
+  .bal i { display:block; height:10px; } .baltxt { font:11px ui-monospace, Menlo, monospace; color:var(--dim); margin-top:3px; }
+  .samp { margin-top:8px; padding-top:6px; border-top:1px dashed var(--line); }
+  .samp .sname { font-size:12px; color:var(--dim); margin:2px 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #spec { width:100%; height:110px; display:block; background:#101215; border-radius:6px; margin-top:6px; }
+  #meter { height:8px; background:#2a2e34; border-radius:4px; overflow:hidden; margin-top:6px; } #meter i { display:block; height:8px; background:var(--acc); width:0; }
+  @media (max-width: 800px) { #app { grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; } #side { border-left:none; border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="cards"></div>
+  <div id="side">
+    <h1>Audio lab</h1>
+    <h2>Spatial test</h2>
+    <canvas id="pad" width="600" height="600"></canvas>
+    <div class="hint">You are the center, facing up. Grid squares are 5 m. Click to fire the selected sound at that spot. Drag to move the last source.</div>
+    <div class="row"><label>Pad sound</label><select id="padSound" style="grid-column:2 / span 2"></select></div>
+    <h2>Space</h2>
+    <div class="row"><label>Environment</label><select id="space" style="grid-column:2 / span 2"></select></div>
+    <div class="row"><label>Reverb mix</label><input id="wet" type="range" min="0" max="1" step="0.01"><span class="val" id="wetV"></span></div>
+    <div class="row"><label>Air muffling</label><input id="air" type="range" min="0" max="2" step="0.05" value="1"><span class="val" id="airV">1</span></div>
+    <div class="row"><label>Max distance</label><input id="maxd" type="range" min="20" max="300" step="5" value="120"><span class="val" id="maxdV">120</span></div>
+    <h2>Ambience</h2>
+    <div class="row"><label>City rumble</label><input id="aRumble" type="range" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
+    <div class="row"><label>Traffic</label><input id="aTraffic" type="range" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
+    <div class="row"><label>Wind</label><input id="aWind" type="range" min="0" max="1" step="0.01" value="0.3"><span class="val"></span></div>
+    <div class="btns"><button id="bAmb">Start ambience</button><button id="bFight">Distant firefight</button></div>
+    <h2>Output</h2>
+    <div class="row"><label>Master</label><input id="master" type="range" min="0" max="1" step="0.01" value="0.7"><span class="val"></span></div>
+    <div id="meter"><i></i></div>
+    <canvas id="spec" width="600" height="220"></canvas>
+    <div class="hint">Live spectrum, log scale 20 Hz to 20 kHz. Gold band = sub and low end; if a sound lives only on the right, it reads as tinny.</div>
+    <div class="btns"><button id="bCopy">Copy presets</button></div>
+  </div>
+</div>
+<div id="start"><div class="box" id="startBox"><h1 style="color:var(--acc)">AUDIO LAB</h1><p>Click to turn on sound</p><p class="hint">Headphones recommended for the spatial test.</p></div></div>
+<script type="module">
+import { SOUNDS, SPACES, startAmbience, impulse, playSound, analyzeSound } from '../../src/audio/sfx.js';
+const $ = id => document.getElementById(id);
+
+// ---------- state ----------
+const state = {};
+for (const [id, s] of Object.entries(SOUNDS)) state[id] = { preset: Object.keys(s.presets)[0], params: { ...Object.values(s.presets)[0] } };
+try { const saved = JSON.parse(localStorage.getItem('audiolab.v2') || 'null'); if (saved) for (const id of Object.keys(state)) if (saved[id]) Object.assign(state[id], saved[id]); } catch (e) {}
+const persist = () => { try { localStorage.setItem('audiolab.v2', JSON.stringify(state)); } catch (e) {} };
+
+// ---------- sample layers: a recorded clip blended with the synthesis, per sound ----------
+// Clip bytes are kept in IndexedDB when the browser allows it, so they survive a reload on this device.
+const layers = {}; // id -> { name, bytes, buffer, gain, synth, pitchVar }
+const DB = (() => { try { return new Promise((res) => { const r = indexedDB.open('audiolab', 1); r.onupgradeneeded = () => r.result.createObjectStore('clips'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); } catch (e) { return Promise.resolve(null); } })();
+async function dbPut(id, v) { try { const db = await DB; if (!db) return; db.transaction('clips', 'readwrite').objectStore('clips').put(v, id); } catch (e) {} }
+async function dbDel(id) { try { const db = await DB; if (!db) return; db.transaction('clips', 'readwrite').objectStore('clips').delete(id); } catch (e) {} }
+async function dbLoadAll() {
+  try { const db = await DB; if (!db) return; const st = db.transaction('clips').objectStore('clips');
+    await new Promise(res => { const c = st.openCursor(); c.onsuccess = () => { const cur = c.result; if (!cur) return res(); layers[cur.key] = { ...cur.value, buffer: null }; cur.continue(); }; c.onerror = res; });
+  } catch (e) {}
+}
+async function decodeLayer(id) {
+  const L = layers[id]; if (!L || L.buffer || !ctx) return;
+  try { L.buffer = await ctx.decodeAudioData(L.bytes.slice(0)); } catch (e) { L.error = 'Could not decode this file'; }
+}
+const layerFor = id => layers[id] && layers[id].buffer ? layers[id] : null;
+
+// ---------- audio graph ----------
+let ctx, master, comp, analyser, convolver, wetGain, dryGain, slap, slapGain, ambience = null, spaceName = 'open street';
+function initAudio() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = ctx.createGain(); master.gain.value = parseFloat($('master').value);
+  comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 4;
+  analyser = ctx.createAnalyser(); analyser.fftSize = 512;
+  master.connect(comp); comp.connect(analyser); analyser.connect(ctx.destination);
+  convolver = ctx.createConvolver(); wetGain = ctx.createGain(); dryGain = ctx.createGain();
+  slap = ctx.createDelay(1); slapGain = ctx.createGain();
+  dryGain.connect(master); convolver.connect(wetGain); wetGain.connect(master);
+  slap.connect(slapGain); slapGain.connect(master);
+  setSpace(spaceName);
+  meterLoop();
+  for (const id of Object.keys(layers)) decodeLayer(id).then(renderCards);
+}
+function setSpace(name) {
+  spaceName = name; const s = SPACES[name];
+  if (!ctx) return;
+  convolver.buffer = impulse(ctx, s.decay, s);
+  const wet = $('wet').dataset.touched ? parseFloat($('wet').value) : s.wet;
+  $('wet').value = wet; $('wetV').textContent = wet.toFixed(2);
+  wetGain.gain.value = wet; slap.delayTime.value = Math.max(0.001, s.slap); slapGain.gain.value = s.slapGain;
+}
+// One voice: sound -> (panner) -> distance filter -> dry + reverb + slapback
+function play(id, params, pos = null) {
+  if (!ctx) return;
+  const voice = ctx.createGain(); let tail = voice;
+  if (pos) {
+    const d = Math.hypot(pos.x, pos.z), maxd = parseFloat($('maxd').value);
+    const pan = ctx.createPanner(); pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 3; pan.maxDistance = maxd; pan.rolloffFactor = 1.1;
+    pan.positionX.value = pos.x; pan.positionY.value = 0; pan.positionZ.value = pos.z;
+    const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = Math.max(600, 18000 / (1 + (d / 25) * parseFloat($('air').value)));
+    voice.connect(pan); pan.connect(air); tail = air;
+    if (d > maxd) voice.gain.value = 0;
+  }
+  tail.connect(dryGain); tail.connect(convolver); tail.connect(slap);
+  const dur = playSound(ctx, voice, ctx.currentTime + 0.01, id, params, layerFor(id));
+  setTimeout(() => voice.disconnect(), (dur + SPACES[spaceName].decay + 1) * 1000);
+}
+
+// ---------- cards ----------
+function renderCards() {
+  const wrap = $('cards'); wrap.innerHTML = '';
+  for (const [id, s] of Object.entries(SOUNDS)) {
+    const st = state[id], card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<div class="head"><div><div class="grp">${s.group}</div><div class="title">${s.label}</div></div></div>`;
+    const sel = document.createElement('select'); sel.innerHTML = Object.keys(s.presets).map(k => `<option>${k}</option>`).join(''); sel.value = st.preset;
+    sel.onchange = () => { st.preset = sel.value; st.params = { ...s.presets[sel.value] }; persist(); renderCards(); };
+    card.querySelector('.head').appendChild(sel);
+    for (const [k, [a, b, step, hint]] of Object.entries(s.params)) {
+      const row = document.createElement('div'); row.className = 'row';
+      row.innerHTML = `<label title="${hint || ''}">${k.replace(/([A-Z])/g, ' $1').toLowerCase()}</label>`;
+      const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: st.params[k] });
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = st.params[k];
+      inp.oninput = () => { st.params[k] = parseFloat(inp.value); val.textContent = st.params[k]; persist(); };
+      inp.onchange = () => { play(id, st.params); card._bal && card._bal(); };
+      row.append(inp, val); card.appendChild(row);
+    }
+    const btns = document.createElement('div'); btns.className = 'btns';
+    const pb = document.createElement('button'); pb.className = 'play'; pb.textContent = 'Play'; pb.onclick = () => play(id, st.params);
+    const pr = document.createElement('button'); pr.textContent = 'Reset preset'; pr.onclick = () => { st.params = { ...s.presets[st.preset] }; persist(); renderCards(); };
+    btns.append(pb, pr); card.appendChild(btns);
+    // frequency balance of the current settings (rendered offline)
+    const bal = document.createElement('div'); bal.className = 'bal'; const baltxt = document.createElement('div'); baltxt.className = 'baltxt';
+    card.append(bal, baltxt);
+    const showBal = async () => {
+      const a = await analyzeSound(id, st.params, layerFor(id)), b = a.bands;
+      const cols = { sub: '#c98a1e', low: '#f2c14e', mid: '#7fb069', high: '#5aa9e6', air: '#b48ead' };
+      bal.innerHTML = Object.entries(b).map(([k, v]) => `<i style="width:${v}%;background:${cols[k]}" title="${k} ${v.toFixed(0)}%"></i>`).join('');
+      baltxt.textContent = `sub ${b.sub.toFixed(0)} · low ${b.low.toFixed(0)} · mid ${b.mid.toFixed(0)} · high ${b.high.toFixed(0)} · air ${b.air.toFixed(0)} %   peak ${a.peak.toFixed(2)}`;
+    };
+    card._bal = showBal; showBal();
+    // sample layer
+    const L = layers[id], sp = document.createElement('div'); sp.className = 'samp';
+    const file = document.createElement('input'); file.type = 'file'; file.accept = 'audio/*'; file.style.display = 'none';
+    file.onchange = async () => {
+      const f = file.files[0]; if (!f) return;
+      const bytes = await f.arrayBuffer();
+      layers[id] = { name: f.name, bytes, buffer: null, gain: 1, synth: 0.6, pitchVar: 0.05 };
+      dbPut(id, { name: f.name, bytes, gain: 1, synth: 0.6, pitchVar: 0.05 });
+      await decodeLayer(id); renderCards();
+    };
+    const lb = document.createElement('button'); lb.textContent = L ? 'Replace clip' : 'Add sample clip'; lb.onclick = () => file.click();
+    sp.innerHTML = `<div class="grp">Sample layer</div><div class="sname">${L ? (L.error || L.name) + (L.buffer ? ` · ${L.buffer.duration.toFixed(2)} s` : ctx ? '' : ' · turn on sound to load') : 'None. Synthesis only.'}</div>`;
+    if (L) {
+      for (const [k, a, b, step, label] of [['gain', 0, 2, 0.01, 'clip level'], ['synth', 0, 1, 0.01, 'synth level'], ['pitchVar', 0, 0.2, 0.005, 'pitch vary']]) {
+        const row = document.createElement('div'); row.className = 'row';
+        row.innerHTML = `<label>${label}</label>`;
+        const inp = document.createElement('input'); Object.assign(inp, { type: 'range', min: a, max: b, step, value: L[k] });
+        const val = document.createElement('span'); val.className = 'val'; val.textContent = L[k];
+        inp.oninput = () => { L[k] = +inp.value; val.textContent = L[k]; dbPut(id, { name: L.name, bytes: L.bytes, gain: L.gain, synth: L.synth, pitchVar: L.pitchVar }); };
+        inp.onchange = () => { play(id, st.params); showBal(); };
+        row.append(inp, val); sp.appendChild(row);
+      }
+    }
+    const sb = document.createElement('div'); sb.className = 'btns'; sb.append(lb);
+    if (L) { const cb = document.createElement('button'); cb.textContent = 'Remove clip'; cb.onclick = () => { delete layers[id]; dbDel(id); renderCards(); }; sb.append(cb); }
+    sp.append(sb, file); card.appendChild(sp);
+    wrap.appendChild(card);
+  }
+}
+dbLoadAll().then(renderCards);
+renderCards();
+$('padSound').innerHTML = Object.entries(SOUNDS).map(([id, s]) => `<option value="${id}">${s.label}</option>`).join('');
+$('space').innerHTML = Object.keys(SPACES).map(k => `<option>${k}</option>`).join('');
+$('space').value = spaceName;
+$('space').onchange = () => { delete $('wet').dataset.touched; setSpace($('space').value); };
+$('wet').oninput = () => { $('wet').dataset.touched = '1'; $('wetV').textContent = (+$('wet').value).toFixed(2); if (wetGain) wetGain.gain.value = +$('wet').value; };
+for (const id of ['air', 'maxd']) $(id).oninput = () => { $(id + 'V').textContent = $(id).value; drawPad(); };
+$('master').oninput = () => { if (master) master.gain.value = +$('master').value; };
+for (const id of ['aRumble', 'aTraffic', 'aWind', 'master']) { const el = $(id); el.nextElementSibling.textContent = el.value; el.addEventListener('input', () => { el.nextElementSibling.textContent = el.value; if (ambience) ambience.set(ambParams()); }); }
+const ambParams = () => ({ rumble: +$('aRumble').value, traffic: +$('aTraffic').value, wind: +$('aWind').value });
+$('bAmb').onclick = () => { if (!ctx) return; if (ambience) { ambience.stop(); ambience = null; $('bAmb').textContent = 'Start ambience'; } else { ambience = startAmbience(ctx, dryGain, ambParams()); $('bAmb').textContent = 'Stop ambience'; } };
+$('bFight').onclick = () => {
+  if (!ctx) return;
+  const kinds = ['rifle', 'smg', 'pistol', 'shotgun'];
+  for (let i = 0; i < 14; i++) setTimeout(() => {
+    const ang = Math.random() * Math.PI * 2, d = 40 + Math.random() * 60, k = kinds[Math.floor(Math.random() * kinds.length)];
+    const pos = { x: Math.cos(ang) * d, z: Math.sin(ang) * d }; sources.push({ ...pos, t: performance.now() }); drawPad();
+    play('gunshot', SOUNDS.gunshot.presets[k], pos);
+  }, i * (120 + Math.random() * 400));
+};
+$('bCopy').onclick = async () => { const t = JSON.stringify({ kind: 'sfxPresets', version: 1, sounds: state }, null, 2); try { await navigator.clipboard.writeText(t); $('bCopy').textContent = 'Copied'; setTimeout(() => ($('bCopy').textContent = 'Copy presets'), 1200); } catch (e) { prompt('Copy:', t); } };
+
+// ---------- spatial pad ----------
+const pad = $('pad'), g = pad.getContext('2d');
+let sources = [], dragging = null;
+const SCALE = 600 / 100; // 100 m across
+function padToWorld(e) { const r = pad.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width * 600 - 300) / SCALE, z: ((e.clientY - r.top) / r.height * 600 - 300) / SCALE }; }
+function drawPad() {
+  g.fillStyle = '#101215'; g.fillRect(0, 0, 600, 600);
+  g.strokeStyle = '#22262b'; g.lineWidth = 1;
+  for (let i = 0; i <= 600; i += 5 * SCALE) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 600); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(600, i); g.stroke(); }
+  g.strokeStyle = '#3a3f46';
+  for (const r of [10, 25, 50]) { g.beginPath(); g.arc(300, 300, r * SCALE, 0, Math.PI * 2); g.stroke(); g.fillStyle = '#5a6068'; g.font = '12px monospace'; g.fillText(r + ' m', 304 + r * SCALE * 0.7, 300 - r * SCALE * 0.7); }
+  g.fillStyle = '#f2c14e'; g.beginPath(); g.moveTo(300, 288); g.lineTo(309, 308); g.lineTo(291, 308); g.closePath(); g.fill();
+  const now = performance.now();
+  sources = sources.filter(s => now - s.t < 4000);
+  for (const s of sources) { const a = 1 - (now - s.t) / 4000; g.fillStyle = `rgba(239,68,68,${a})`; g.beginPath(); g.arc(300 + s.x * SCALE, 300 + s.z * SCALE, 7, 0, Math.PI * 2); g.fill(); }
+}
+pad.addEventListener('pointerdown', e => {
+  if (!ctx) return;
+  const p = padToWorld(e); const id = $('padSound').value;
+  sources.push({ ...p, t: performance.now() }); dragging = sources[sources.length - 1];
+  play(id, state[id].params, p); drawPad();
+});
+pad.addEventListener('pointermove', e => { if (dragging && e.buttons) { Object.assign(dragging, padToWorld(e), { t: performance.now() }); drawPad(); } });
+addEventListener('pointerup', () => { dragging = null; });
+setInterval(drawPad, 200); drawPad();
+
+function meterLoop() {
+  const buf = new Float32Array(analyser.fftSize);
+  analyser.fftSize = 4096; analyser.smoothingTimeConstant = 0.75;
+  const tbuf = new Float32Array(analyser.fftSize), fbuf = new Float32Array(analyser.frequencyBinCount);
+  const sc = $('spec'), g2 = sc.getContext('2d'), W = sc.width, H = sc.height, sr = ctx.sampleRate;
+  const xOf = f => Math.log(f / 20) / Math.log(1000) * W;
+  const tick = () => {
+    analyser.getFloatTimeDomainData(tbuf); let pk = 0; for (const v of tbuf) pk = Math.max(pk, Math.abs(v)); $('meter').firstChild.style.width = Math.min(100, pk * 100) + '%';
+    analyser.getFloatFrequencyData(fbuf);
+    g2.fillStyle = '#101215'; g2.fillRect(0, 0, W, H);
+    g2.fillStyle = 'rgba(242,193,78,0.07)'; g2.fillRect(0, 0, xOf(400), H);
+    g2.strokeStyle = '#22262b'; g2.fillStyle = '#5a6068'; g2.font = '18px monospace';
+    for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) { const x = xOf(f); g2.beginPath(); g2.moveTo(x, 0); g2.lineTo(x, H); g2.stroke(); g2.fillText(f >= 1000 ? f / 1000 + 'k' : f, x + 3, H - 6); }
+    g2.beginPath();
+    for (let x = 0; x < W; x += 2) {
+      const f = 20 * Math.pow(1000, x / W), bin = Math.min(fbuf.length - 1, Math.round(f / (sr / 2) * fbuf.length));
+      const db = Math.max(-100, fbuf[bin]), y = H - (db + 100) / 80 * H;
+      x ? g2.lineTo(x, y) : g2.moveTo(x, y);
+    }
+    g2.strokeStyle = '#f2c14e'; g2.lineWidth = 2; g2.stroke(); g2.lineWidth = 1;
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+$('startBox').onclick = () => { initAudio(); $('start').remove(); };
+
+// ---------- headless self-test: render every preset offline and measure it ----------
+if (location.hash === '#autotest') {
+  window.__selftest = async () => {
+    const out = [];
+    for (const [id, sd] of Object.entries(SOUNDS)) for (const [name, p] of Object.entries(sd.presets)) {
+      const a = await analyzeSound(id, p), b = a.bands;
+      out.push(`${(id + '/' + name).padEnd(22)} peak ${a.peak.toFixed(2)} sub ${b.sub.toFixed(0)} low ${b.low.toFixed(0)} mid ${b.mid.toFixed(0)} hi ${b.high.toFixed(0)} air ${b.air.toFixed(0)}${a.peak < 0.05 ? ' SILENT' : ''}${a.peak > 1.5 ? ' HOT' : ''}`);
+    }
+    return out.join('\n');
+  };
+}
+</script>
+</body>
+</html>
