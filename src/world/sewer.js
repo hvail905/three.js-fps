@@ -216,7 +216,10 @@ export function buildSewer(def, { visuals = true } = {}) {
   }
 
   // ---------- props: data-driven dressing that says someone rebuilt this place ----------
-  const cameras = [], speakers = [], propSolids = [];
+  const cameras = [], speakers = [], propSolids = [], dynamics = [];
+  const DYNAMIC_PROPS = new Set(['crate', 'barrel']);
+  // a solid box keeps its centre, half extents and rotation for the physics world; the geometry goes to the collider
+  const boxOf = (geo, m) => { geo.computeBoundingBox(); const c = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3(); geo.boundingBox.getCenter(c); const h = geo.boundingBox.getSize(new THREE.Vector3()).multiplyScalar(0.5); if (m) { m.decompose(pp, q, sc); h.multiply(sc); c.applyMatrix4(m); geo.applyMatrix4(m); } geo.userData.box = { c: c.toArray(), h: h.toArray(), q: [q.x, q.y, q.z, q.w] }; return geo; };
   const WALL_KINDS = new Set(['camera', 'speaker', 'stencil', 'window', 'cabinet', 'locker', 'shelf']);
   for (const p of def.props || []) {
     const build = PROP_BUILDERS[p.kind]; if (!build) continue;
@@ -235,7 +238,8 @@ export function buildSewer(def, { visuals = true } = {}) {
     } else { const [cx, cz] = center(p.cell); g.position.set(cx, f, cz); g.rotation.y = -(p.rot || 0) * Math.PI / 180; }
     if (visuals) root.add(g);
     g.updateMatrixWorld(true);
-    for (const sg of out.solids) propSolids.push([sg.applyMatrix4(g.matrixWorld), p.kind === 'crate' || p.kind === 'shelf' ? 'wood' : 'metal']);
+    if (DYNAMIC_PROPS.has(p.kind)) { const [cx, cz] = center(p.cell); dynamics.push({ kind: p.kind, pos: [cx, f, cz], yaw: -(p.rot || 0) * Math.PI / 180, group: visuals ? g : null }); continue; }
+    for (const sg of out.solids) propSolids.push([boxOf(sg, g.matrixWorld), p.kind === 'shelf' ? 'wood' : 'metal']);
     if (out.light && visuals) lights.push({ light: out.light, bulb: null, kind: 'window', base: out.light.intensity, flicker: 0, phase: 0 });
     if (p.kind === 'camera') cameras.push({ head: out.parts.head, led: out.parts.led, group: g, phase: rnd() * 6 });
     if (p.kind === 'speaker') { const v = new THREE.Vector3(); g.getWorldPosition(v); speakers.push([v.x, v.y, v.z]); }
@@ -260,7 +264,7 @@ export function buildSewer(def, { visuals = true } = {}) {
     const pw = 0.45, pd = 0.2, bh = 0.3;
     for (const s of [-1, 1]) {
       const g = alongX ? new THREE.BoxGeometry(pw, k - f, pd).translate(cx, f + (k - f) / 2, cz + s * (C / 2 - pd / 2)) : new THREE.BoxGeometry(pd, k - f, pw).translate(cx + s * (C / 2 - pd / 2), f + (k - f) / 2, cz);
-      ribs.push(g); propSolids.push([g.clone(), 'concrete']);
+      ribs.push(g); propSolids.push([boxOf(g.clone()), 'concrete']);
     }
     ribs.push(alongX ? new THREE.BoxGeometry(pw, bh, C).translate(cx, k - bh / 2, cz) : new THREE.BoxGeometry(C, bh, pw).translate(cx, k - bh / 2, cz));
   }
@@ -285,8 +289,9 @@ export function buildSewer(def, { visuals = true } = {}) {
   if (visuals && trim.length) { const m = new THREE.Mesh(mergeGeometries(trim.map(g => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), new THREE.MeshStandardMaterial({ color: 0x2c3a30, roughness: 0.5, flatShading: true })); m.receiveShadow = true; root.add(m); }
 
   // ---------- clutter: the references fill every floor edge and wall with small things ----------
-  // No loose bottles or bricks here, so junk never reads as a pickup.
-  if (visuals) {
+  // No loose bottles or bricks here, so junk never reads as a pickup. Cans and cardboard boxes are loose
+  // physical objects (dynamics); the rest is merged static dressing.
+  {
     const J = { paper: [], card: [], can: [], wood: [], rag: [], box: [], conduit: [] }, rr = mulberry32(99);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const ch = at(c, r); if (!'.RPX'.includes(ch)) continue;
@@ -296,8 +301,9 @@ export function buildSewer(def, { visuals = true } = {}) {
         const wx = cx + dc * (C / 2 - 0.25), wz = cz + dr * (C / 2 - 0.25), along = () => (rr() - 0.5) * C * 0.8;
         const px = () => wx + (dr ? along() : (rr() - 0.5) * 0.2), pz = () => wz + (dc ? along() : (rr() - 0.5) * 0.2);
         if (rr() < 0.45) for (let i = 0; i < 2 + rr() * 4; i++) J.paper.push(new THREE.PlaneGeometry(0.21 + rr() * 0.1, 0.28 + rr() * 0.1).rotateX(-Math.PI / 2).rotateY(rr() * 6).translate(px() + (rr() - 0.5) * 0.6 * -dc, f + 0.004 + i * 0.001, pz() + (rr() - 0.5) * 0.6 * -dr));
-        if (rr() < 0.25) for (let i = 0; i < 1 + rr() * 3; i++) J.can.push(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 7).rotateZ(rr() < 0.6 ? Math.PI / 2 : 0).rotateY(rr() * 6).translate(px(), f + 0.04, pz()));
-        if (rr() < 0.18) { const s = 0.3 + rr() * 0.3; J.card.push(new THREE.BoxGeometry(s * 1.3, s * 0.8, s).rotateY(rr() * 0.6).translate(px(), f + s * 0.4, pz())); if (rr() < 0.5) J.card.push(new THREE.BoxGeometry(s, s * 0.6, s * 0.8).rotateY(rr()).translate(px(), f + s * 0.8 + s * 0.3, pz())); }
+        const clear = (x, z) => !(def.pickups || []).some(k => { const [kx, kz] = center(k.cell); return Math.hypot(kx - x, kz - z) < 1.3; }); // junk never hides a pickup
+        if (rr() < 0.25) for (let i = 0; i < 1 + rr() * 3; i++) { const x = px(), z = pz(), yaw = rr() * 6; if (clear(x, z)) dynamics.push({ kind: 'can', pos: [x, f, z], yaw }); }
+        if (rr() < 0.18) { const x = px(), z = pz(), yaw = rr() * 0.6, two = rr() < 0.5, yaw2 = yaw + rr() * 0.5; if (clear(x, z)) { dynamics.push({ kind: 'card', pos: [x, f, z], yaw }); if (two) dynamics.push({ kind: 'card', pos: [x, f + 0.31, z], yaw: yaw2 }); } }
         if (rr() < 0.12) { const g = new THREE.BoxGeometry(0.15, 1.6 + rr() * 0.6, 0.03).rotateX(dr * 0.25).rotateZ(-dc * 0.25); g.translate(cx + dc * (C / 2 - 0.2) + (dr ? along() : 0), f + 0.85, cz + dr * (C / 2 - 0.2) + (dc ? along() : 0)); J.wood.push(g); }
         if (rr() < 0.15) J.rag.push(new THREE.SphereGeometry(0.18, 6, 4).scale(1.4, 0.35, 1).rotateY(rr() * 6).translate(px(), f + 0.04, pz()));
         // wall: junction boxes with conduit to the ceiling, and notices pinned up by whoever runs this place
@@ -311,11 +317,19 @@ export function buildSewer(def, { visuals = true } = {}) {
         }
       }
     }
+    if (visuals) {
     const tx = n => { const t = PIXEL_TEXTURES[n](); return { map: t.map, normalMap: t.normalMap }; };
     const JM = { paper: new THREE.MeshStandardMaterial({ ...tx('paper'), roughness: 0.95, side: THREE.DoubleSide }), card: new THREE.MeshStandardMaterial({ ...tx('cardboard'), roughness: 1 }),
       can: new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.5, metalness: 0.5, flatShading: true }), wood: new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9, flatShading: true }),
       rag: new THREE.MeshStandardMaterial({ color: 0x3a3428, roughness: 1, flatShading: true }), box: dressMat, conduit: dressMat };
     for (const [k, gs] of Object.entries(J)) if (gs.length) { const keepUV = k === 'paper' || k === 'card'; const m = new THREE.Mesh(mergeGeometries(gs.map(g => { if (!keepUV) g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }), false), JM[k]); m.receiveShadow = true; m.castShadow = k !== 'paper'; root.add(m); }
+    // loose junk: one instanced mesh per kind; the game copies body transforms into it
+    for (const [kind, geo, m] of [['can', new THREE.CylinderGeometry(0.033, 0.033, 0.12, 7), JM.can], ['card', new THREE.BoxGeometry(0.4, 0.3, 0.32), JM.card]]) {
+      const list = dynamics.filter(d => d.kind === kind); if (!list.length) continue;
+      const inst = new THREE.InstancedMesh(geo, m, list.length); inst.castShadow = inst.receiveShadow = true; inst.frustumCulled = false; root.add(inst);
+      list.forEach((d, i) => { d.inst = inst; d.index = i; });
+    }
+    }
   }
 
   // ---------- bars across the mouths of the side tunnels ----------
@@ -325,7 +339,7 @@ export function buildSewer(def, { visuals = true } = {}) {
     const [cx, cz] = center([c, r]), ex = cx + dc * C / 2, ez = cz + dr * C / 2, k = Math.min(hOf('g').ceil, hOf(n).ceil);
     for (let i = 0; i < 9; i++) { const o = -C / 2 + (i + 0.5) * C / 9; bars.push(new THREE.CylinderGeometry(0.025, 0.025, k, 6).translate(ex + (dr ? o : 0), k / 2, ez + (dc ? o : 0))); }
     for (const y of [0.15, 1.2, k - 0.1]) bars.push(new THREE.BoxGeometry(dr ? C : 0.06, 0.06, dc ? C : 0.06).translate(ex, y, ez));
-    propSolids.push([new THREE.BoxGeometry(dr ? C : 0.12, k, dc ? C : 0.12).translate(ex, k / 2, ez), 'metal']);
+    propSolids.push([boxOf(new THREE.BoxGeometry(dr ? C : 0.12, k, dc ? C : 0.12).translate(ex, k / 2, ez)), 'metal']);
   }
   if (bars.length && visuals) { const m = new THREE.Mesh(mergeGeometries(bars.map(g => g.index ? g.toNonIndexed() : g), false), rust); m.castShadow = true; root.add(m); }
 
@@ -356,7 +370,8 @@ export function buildSewer(def, { visuals = true } = {}) {
   const collider = { geometry, bvh: new MeshBVH(geometry), triSurface };
 
   return {
-    root, collider, lights, water, mats, cameras, speakers,
+    root, collider, lights, water, mats, cameras, speakers, dynamics,
+    staticBoxes: [...propSolids.map(([g]) => g.userData.box).filter(Boolean), ...solidBoxes.map(([x, y, z, w, h, d]) => ({ c: [x, y, z], h: [w / 2, h / 2, d / 2] }))],
     bounds: { x0: 0, z0: 0, width: cols * C, depth: rows * C },
     cellCenter: center, cellAt: (x, z) => at(Math.floor(x / C), Math.floor(z / C)), heightsAt: (x, z) => hOf(at(Math.floor(x / C), Math.floor(z / C))),
   };

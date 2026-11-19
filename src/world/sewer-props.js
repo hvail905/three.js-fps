@@ -14,7 +14,7 @@ function mats() {
   const T = name => { const t = PIXEL_TEXTURES[name](); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: 0.8 }); };
   const flat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: o.rough ?? 0.8, metalness: o.metal ?? 0, flatShading: true, ...(o.emissive ? { emissive: o.emissive, emissiveIntensity: o.ei ?? 1 } : {}), ...(o.transparent ? { transparent: true, opacity: o.opacity } : {}) });
   M = {
-    plate: T('plate'), rust: T('rust'), crate: T('crate'), hazard: T('hazard'),
+    plate: T('plate'), rust: T('rust'), crate: T('crate'), hazard: T('hazard'), pine: T('pine'), drum: T('drum'),
     steel: flat(0x4a4e4c, { rough: 0.45, metal: 0.6 }), dark: flat(0x1c1d1c, { rough: 0.6, metal: 0.3 }), black: flat(0x0c0c0c),
     cloth: T('cloth'), stained: T('cloth'), leather: T('leather'), card: T('cardboard'),
     glass: flat(0x8aa0a0, { rough: 0.1, transparent: true, opacity: 0.35 }), bag: flat(0xb8c0a0, { rough: 0.3, transparent: true, opacity: 0.6 }),
@@ -106,9 +106,9 @@ export const PROP_BUILDERS = {
     for (let i = 0; i < 4; i++) { const y = 0.2 + i * 0.5; g.add(box(1.45, 0.03, 0.45, m.steel, 0, y, 0.25)); for (let k = 0; k < 4; k++) if ((i * 7 + k * 3) % 5 !== 0) { const s = 0.12 + ((i + k) % 3) * 0.05; g.add((i + k) % 2 ? box(s * 1.4, s, s, m.crate, -0.5 + k * 0.33, y + s / 2 + 0.015, 0.25) : cyl(0.05, 0.05, 0.16, m.jar, -0.5 + k * 0.33, y + 0.095, 0.25, 8)); } }
     return { group: g, solids: [solid(1.5, 1.9, 0.5, 0, 0.95, 0.25)] };
   },
-  crate() { const m = mats(), g = new THREE.Group(); g.add(box(0.9, 0.9, 0.9, m.crate, 0, 0.45, 0)); return { group: g, solids: [solid(0.9, 0.9, 0.9, 0, 0.45, 0)] }; },
-  barrel() { const m = mats(), g = new THREE.Group(); g.add(cyl(0.3, 0.3, 0.9, m.rust, 0, 0.45, 0, 12), cyl(0.31, 0.31, 0.12, m.hazard, 0, 0.62, 0, 12)); return { group: g, solids: [solid(0.6, 0.9, 0.6, 0, 0.45, 0)] }; },
-  table() { const m = mats(), g = new THREE.Group(); for (const [x, z] of [[-0.7, -0.35], [0.7, -0.35], [-0.7, 0.35], [0.7, 0.35]]) g.add(box(0.05, 0.85, 0.05, m.steel, x, 0.425, z)); g.add(box(1.6, 0.05, 0.85, m.plate, 0, 0.87, 0), box(0.4, 0.3, 0.3, m.dark, -0.4, 1.04, 0), box(0.25, 0.08, 0.2, m.steel, 0.3, 0.93, 0.1), cyl(0.06, 0.06, 0.2, m.jar, 0.55, 0.99, -0.2, 8)); return { group: g, solids: [solid(1.65, 0.9, 0.9, 0, 0.45, 0)] }; },
+  crate() { const m = mats(), g = new THREE.Group(); g.add(box(0.9, 0.9, 0.9, m.pine, 0, 0.45, 0)); for (const s of [-1, 1]) g.add(box(0.03, 0.08, 0.3, m.leather, s * 0.46, 0.7, 0)); /* rope handles */ return { group: g, solids: [solid(0.9, 0.9, 0.9, 0, 0.45, 0)] }; },
+  barrel() { const m = mats(), g = new THREE.Group(); g.add(cyl(0.3, 0.3, 0.9, m.drum, 0, 0.45, 0, 12), cyl(0.31, 0.31, 0.03, m.steel, 0, 0.88, 0, 12), cyl(0.31, 0.31, 0.03, m.steel, 0, 0.02, 0, 12)); return { group: g, solids: [solid(0.6, 0.9, 0.6, 0, 0.45, 0)] }; },
+  table(p = {}) { const m = mats(), g = new THREE.Group(); for (const [x, z] of [[-0.7, -0.35], [0.7, -0.35], [-0.7, 0.35], [0.7, 0.35]]) g.add(box(0.05, 0.85, 0.05, m.steel, x, 0.425, z)); g.add(box(1.6, 0.05, 0.85, m.plate, 0, 0.87, 0)); if (p.bare) g.add(box(1.1, 0.008, 0.62, m.cloth, 0.05, 0.899, 0)); /* a pale sheet laid over it: dark metal shows against it */ else g.add(box(0.4, 0.3, 0.3, m.dark, -0.4, 1.04, 0), box(0.25, 0.08, 0.2, m.steel, 0.3, 0.93, 0.1), cyl(0.06, 0.06, 0.2, m.jar, 0.55, 0.99, -0.2, 8)); /* bare: something has been laid out on it */ return { group: g, solids: [solid(1.65, 0.9, 0.9, 0, 0.45, 0)] }; },
 };
 
 // Light fixtures: geometry plus the light itself. kind: cage (wall lamp), tube (fluorescent bar),

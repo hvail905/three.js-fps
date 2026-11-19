@@ -145,6 +145,22 @@ export const PIXEL_TEXTURES = {
     R(g, 0, 0, 5, h, '#3a2c1c'); R(g, w - 5, 0, 5, h, '#3a2c1c'); R(g, 0, 0, w, 5, '#3a2c1c'); R(g, 0, h - 5, w, 5, '#3a2c1c');
     cloud(g, rnd, w, h, 4, '#140e08', 0, 0.45);
   } }),
+  // newer pine crate: pale planks, dark nail heads, a stencilled arrow; reads as something you can move
+  pine: () => build('pine', { w: 64, h: 64, normal: 1.5, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#a08058'); R(hg, 0, 0, w, h, shade(170));
+    for (let y = 0; y < h; y += 16) { const t = 0.9 + rnd() * 0.18; R(g, 0, y + 1, w, 14, `rgb(${168 * t | 0},${132 * t | 0},${92 * t | 0})`); R(g, 0, y, w, 1, '#3a2a18'); R(hg, 0, y, w, 1, shade(50)); for (let i = 0; i < 5; i++) R(g, rnd() * w, y + 3 + rnd() * 10, 8 + rnd() * 16, 1, 'rgba(110,80,50,0.5)'); }
+    R(g, 0, 0, 6, h, '#7a5c3a'); R(g, w - 6, 0, 6, h, '#7a5c3a'); R(g, 0, 0, w, 6, '#7a5c3a'); R(g, 0, h - 6, w, 6, '#7a5c3a');
+    for (const [x, y] of [[3, 3], [w - 4, 3], [3, h - 4], [w - 4, h - 4]]) R(g, x, y, 2, 2, '#1c140c');
+    g.fillStyle = 'rgba(30,24,16,0.75)'; g.beginPath(); g.moveTo(28, 44); g.lineTo(36, 44); g.lineTo(36, 30); g.lineTo(42, 30); g.lineTo(32, 20); g.lineTo(22, 30); g.lineTo(28, 30); g.fill(); // this side up
+    cloud(g, rnd, w, h, 4, '#3a2a14', 0, 0.3);
+  } }),
+  // painted oil drum: chipped blue paint, a yellow band, rust at the rims
+  drum: () => build('drum', { w: 64, h: 64, normal: 1.5, draw(g, hg, rnd, w, h) {
+    R(g, 0, 0, w, h, '#2e4a6a'); R(hg, 0, 0, w, h, shade(160)); cloud(g, rnd, w, h, 6, '#121a24', 0, 0.45);
+    R(g, 0, 26, w, 10, '#b8922a'); R(g, 0, 26, w, 1, '#3a2a10'); R(g, 0, 35, w, 1, '#3a2a10');
+    for (const y of [6, h - 7]) { R(g, 0, y, w, 2, '#1a2230'); R(hg, 0, y, w, 2, shade(230)); }
+    cloud(g, rnd, w, 10, 8, '#6a3a1c', 0.1, 0.8); for (let i = 0; i < 18; i++) R(g, rnd() * w, rnd() * h, 2 + rnd() * 4, 1 + rnd() * 2, 'rgba(110,62,30,0.7)');
+  } }),
   // stained mattress / gown cloth: quilting lines, old brown blooms
   cloth: () => build('cloth', { w: 64, h: 64, normal: 1.5, draw(g, hg, rnd, w, h) {
     R(g, 0, 0, w, h, '#8a8a78'); R(hg, 0, 0, w, h, shade(170)); cloud(g, rnd, w, h, 4, '#2a2618', 0.05, 0.55);
