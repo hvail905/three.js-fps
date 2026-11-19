@@ -977,5 +977,6 @@
   }
  ],
  "ambientSky": "#2c4a48",
- "ambientGround": "#1a140e"
+ "ambientGround": "#1a140e",
+ "viewLight": 0.42
 }

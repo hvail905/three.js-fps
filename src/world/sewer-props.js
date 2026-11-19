@@ -16,7 +16,7 @@ function mats() {
   M = {
     plate: T('plate'), rust: T('rust'), crate: T('crate'), hazard: T('hazard'),
     steel: flat(0x4a4e4c, { rough: 0.45, metal: 0.6 }), dark: flat(0x1c1d1c, { rough: 0.6, metal: 0.3 }), black: flat(0x0c0c0c),
-    cloth: flat(0x8c8676, { rough: 1 }), stained: flat(0x6e5a44, { rough: 1 }), leather: flat(0x2a1c14, { rough: 0.7 }),
+    cloth: T('cloth'), stained: T('cloth'), leather: T('leather'), card: T('cardboard'),
     glass: flat(0x8aa0a0, { rough: 0.1, transparent: true, opacity: 0.35 }), bag: flat(0xb8c0a0, { rough: 0.3, transparent: true, opacity: 0.6 }),
     cable: flat(0x151515, { rough: 0.5 }), jar: flat(0x6a7a52, { rough: 0.2, transparent: true, opacity: 0.75 }),
   };
