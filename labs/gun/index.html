@@ -83,6 +83,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from '../../src/sim/movement.js';
 import { STAT_SPEC, PRESETS, makeGunState, stepGun, damageAt, currentSpread } from '../../src/sim/gun.js';
+import { createViewmodel } from '../../src/render/viewmodel.js';
 
 const $ = id => document.getElementById(id);
 const D2R = THREE.MathUtils.degToRad, lerp = THREE.MathUtils.lerp;
@@ -162,28 +163,12 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 
 // ---------- viewmodel ----------
 const WLIB = createWeaponLibrary(THREE);
-const vScene = new THREE.Scene(), vCam = new THREE.PerspectiveCamera(55, 1, 0.05, 10);
-vScene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.6));
-const l1 = new THREE.DirectionalLight(0xffffff, 1.8); l1.position.set(1, 2, 1.5); vScene.add(l1);
-const l2 = new THREE.DirectionalLight(0xffffff, 1.1); l2.position.set(-1, 0.6, 2); vScene.add(l2);
-const vmRoot = new THREE.Group(); vScene.add(vmRoot);
-const flash = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0 })); flash.visible = false;
+// viewmodel is shared with the game: src/render/viewmodel.js
+const VM = createViewmodel(WLIB), vScene = VM.scene, vCam = VM.camera, vmRoot = VM.root, flash = VM.flash;
 let weaponMesh = null, flashT = 0, kick = 0;
-const skin = new THREE.MeshStandardMaterial({ color: 0xc69c7a, roughness: 0.8, flatShading: true }), sleeve = new THREE.MeshStandardMaterial({ color: 0x3a4436, roughness: 0.95, flatShading: true });
-function arm(parent, [x, y, z], side) {
-  const h = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.06, 0.08), skin); h.position.set(x + side * 0.004, y - 0.01, z + 0.01); parent.add(h);
-  const from = new THREE.Vector3(x, y - 0.02, z + 0.05), to = from.clone().add(new THREE.Vector3(side * 0.06, -0.2, 0.42)), d = to.clone().sub(from);
-  const a = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.038, d.length(), 8), sleeve); a.position.copy(from).add(to).multiplyScalar(0.5); a.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); parent.add(a);
-}
 function setWeapon(id) {
   weaponId = id; S = stats[id]; gun = makeGunState(S);
-  flash.removeFromParent();
-  if (weaponMesh) { vmRoot.remove(weaponMesh); WLIB.dispose(weaponMesh); }
-  weaponMesh = WLIB.build({ prop: id });
-  const an = weaponMesh.userData.anchors;
-  arm(weaponMesh, an.grip, 1); if (an.support) arm(weaponMesh, an.support, -1);
-  flash.position.set(...an.muzzle); flash.position.z -= 0.03; weaponMesh.add(flash);
-  vmRoot.add(weaponMesh);
+  weaponMesh = VM.setWeapon(id);
   $('wsel').value = id; renderPanel();
 }
 
@@ -201,11 +186,7 @@ function ring(center, normal, radius, color) {
   const l = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color }));
   l.position.copy(center); l.lookAt(center.clone().add(normal)); return l;
 }
-function muzzleWorld() {
-  if (!weaponMesh || !vmRoot.visible) return camera.position.clone().add(new THREE.Vector3(0.12, -0.12, -0.3).applyQuaternion(camera.quaternion));
-  vmRoot.updateMatrixWorld(true); camera.updateMatrixWorld(true);
-  return new THREE.Vector3(...weaponMesh.userData.anchors.muzzle).applyMatrix4(weaponMesh.matrixWorld).applyMatrix4(camera.matrixWorld);
-}
+function muzzleWorld() { return VM.muzzleWorld(camera); }
 function updateTraces() {
   const life = +$('traceLife').value;
   for (let i = traces.length - 1; i >= 0; i--) {

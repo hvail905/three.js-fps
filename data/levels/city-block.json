@@ -1,0 +1,979 @@
+{
+ "kind": "level",
+ "version": 1,
+ "name": "City block",
+ "objects": [
+  {
+   "id": 1,
+   "type": "kit",
+   "kind": "warehouse",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -31.0,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 2,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -19.0,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 3,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -12.8,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 4,
+   "type": "kit",
+   "kind": "cornerShop",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -6.9,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 5,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -1.2,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 6,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    5.0,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 7,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    11.2,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 8,
+   "type": "kit",
+   "kind": "cornerShop",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    16.9,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 9,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    22.8,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 10,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    29.0,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 11,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    36.8,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 12,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    30.6,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 13,
+   "type": "kit",
+   "kind": "cornerShop",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    24.9,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 14,
+   "type": "kit",
+   "kind": "warehouse",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    13.2,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 15,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    1.2,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 16,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -5.0,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 17,
+   "type": "kit",
+   "kind": "cornerShop",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -10.9,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 18,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -16.6,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 19,
+   "type": "kit",
+   "kind": "tenement",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -22.8,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 71,
+   "type": "kit",
+   "kind": "brownstone",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    35,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 72,
+   "type": "kit",
+   "kind": "cornerShop",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    40.7,
+    0.15,
+    -6
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 73,
+   "type": "kit",
+   "kind": "warehouse",
+   "kit": "facades",
+   "params": {},
+   "pos": [
+    -35,
+    0.15,
+    20
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 20,
+   "type": "prim",
+   "kind": "platform",
+   "params": {
+    "w": 84,
+    "h": 0.15,
+    "d": 4,
+    "color": "light"
+   },
+   "pos": [
+    0,
+    0,
+    -4
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 21,
+   "type": "prim",
+   "kind": "platform",
+   "params": {
+    "w": 84,
+    "h": 0.15,
+    "d": 4,
+    "color": "light"
+   },
+   "pos": [
+    0,
+    0,
+    18
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 22,
+   "type": "prim",
+   "kind": "wall",
+   "params": {
+    "w": 28,
+    "h": 4,
+    "d": 0.5,
+    "color": "dark"
+   },
+   "pos": [
+    -41.5,
+    0,
+    7
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 23,
+   "type": "prim",
+   "kind": "wall",
+   "params": {
+    "w": 28,
+    "h": 4,
+    "d": 0.5,
+    "color": "dark"
+   },
+   "pos": [
+    41.5,
+    0,
+    7
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 24,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -30,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 25,
+   "type": "kit",
+   "kind": "fireHydrant",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -24,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 26,
+   "type": "kit",
+   "kind": "trashCan",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -19,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 27,
+   "type": "kit",
+   "kind": "newspaperBox",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -13,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 28,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -8,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 29,
+   "type": "kit",
+   "kind": "mailbox",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -2,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 30,
+   "type": "kit",
+   "kind": "bench",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    4,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 31,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    14,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 32,
+   "type": "kit",
+   "kind": "parkingMeter",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    20,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 33,
+   "type": "kit",
+   "kind": "trashCan",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    25,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 34,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    32,
+    0.15,
+    -3
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 35,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -34,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 36,
+   "type": "kit",
+   "kind": "busStop",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -26,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 37,
+   "type": "kit",
+   "kind": "trashCan",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -16,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 38,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -12,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 39,
+   "type": "kit",
+   "kind": "fireHydrant",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    -4,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 40,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    8,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 41,
+   "type": "kit",
+   "kind": "bikeRack",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    16,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 42,
+   "type": "kit",
+   "kind": "trashCan",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    22,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 43,
+   "type": "kit",
+   "kind": "streetLight",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    28,
+    0.15,
+    17
+   ],
+   "rotY": 180
+  },
+  {
+   "id": 44,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -28,
+    0,
+    -0.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 45,
+   "type": "kit",
+   "kind": "van",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -15,
+    0,
+    -0.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 46,
+   "type": "kit",
+   "kind": "hatchback",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -3,
+    0,
+    -0.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 47,
+   "type": "kit",
+   "kind": "pickup",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    10,
+    0,
+    -0.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 48,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    24,
+    0,
+    -0.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 49,
+   "type": "kit",
+   "kind": "hatchback",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -31,
+    0,
+    14.6
+   ],
+   "rotY": -90
+  },
+  {
+   "id": 50,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -20,
+    0,
+    14.6
+   ],
+   "rotY": -90
+  },
+  {
+   "id": 51,
+   "type": "kit",
+   "kind": "boxTruck",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    -6,
+    0,
+    14.6
+   ],
+   "rotY": -90
+  },
+  {
+   "id": 52,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    18,
+    0,
+    14.6
+   ],
+   "rotY": -90
+  },
+  {
+   "id": 53,
+   "type": "kit",
+   "kind": "van",
+   "kit": "vehicles",
+   "params": {},
+   "pos": [
+    30,
+    0,
+    14.6
+   ],
+   "rotY": -90
+  },
+  {
+   "id": 54,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {
+    "condition": "wrecked"
+   },
+   "pos": [
+    -10,
+    0,
+    7
+   ],
+   "rotY": -60
+  },
+  {
+   "id": 55,
+   "type": "kit",
+   "kind": "jerseyBarrier",
+   "kit": "props",
+   "params": {
+    "count": 2
+   },
+   "pos": [
+    2,
+    0,
+    4
+   ],
+   "rotY": 15
+  },
+  {
+   "id": 56,
+   "type": "kit",
+   "kind": "dumpster",
+   "kit": "props",
+   "params": {},
+   "pos": [
+    16,
+    0,
+    10
+   ],
+   "rotY": 80
+  },
+  {
+   "id": 57,
+   "type": "prim",
+   "kind": "cover",
+   "params": {
+    "w": 2.4,
+    "h": 1.1,
+    "d": 0.6,
+    "color": "yellow"
+   },
+   "pos": [
+    22,
+    0,
+    5
+   ],
+   "rotY": 0
+  },
+  {
+   "id": 58,
+   "type": "kit",
+   "kind": "jerseyBarrier",
+   "kit": "props",
+   "params": {
+    "count": 3
+   },
+   "pos": [
+    30,
+    0,
+    9
+   ],
+   "rotY": -20
+  },
+  {
+   "id": 59,
+   "type": "kit",
+   "kind": "sedan",
+   "kit": "vehicles",
+   "params": {
+    "condition": "burned"
+   },
+   "pos": [
+    36,
+    0,
+    3
+   ],
+   "rotY": 30
+  },
+  {
+   "id": 60,
+   "type": "kit",
+   "kind": "jerseyBarrier",
+   "kit": "props",
+   "params": {
+    "count": 4
+   },
+   "pos": [
+    -39,
+    0,
+    7
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 61,
+   "type": "kit",
+   "kind": "jerseyBarrier",
+   "kit": "props",
+   "params": {
+    "count": 4
+   },
+   "pos": [
+    39,
+    0,
+    7
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 62,
+   "type": "marker",
+   "kind": "playerSpawn",
+   "params": {},
+   "pos": [
+    -36,
+    0.15,
+    7
+   ],
+   "rotY": 270
+  },
+  {
+   "id": 63,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    -8,
+    0,
+    9.5
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 64,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    3,
+    0,
+    1.5
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 65,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    14,
+    0.15,
+    -1.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 66,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    17,
+    0,
+    12
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 67,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    24,
+    0,
+    3.6
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 68,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    31,
+    0,
+    11.5
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 69,
+   "type": "marker",
+   "kind": "enemySpawn",
+   "params": {},
+   "pos": [
+    36,
+    0.15,
+    -1.5
+   ],
+   "rotY": 90
+  },
+  {
+   "id": 70,
+   "type": "marker",
+   "kind": "objective",
+   "params": {},
+   "pos": [
+    38,
+    0,
+    7
+   ],
+   "rotY": 0
+  }
+ ]
+}

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 // Every page is an entry: the hub at the root plus one page per lab.
 const labs = readdirSync(resolve(import.meta.dirname, 'labs')).filter(d => existsSync(resolve(import.meta.dirname, 'labs', d, 'index.html')));
-const input = { hub: resolve(import.meta.dirname, 'index.html') };
+const input = { hub: resolve(import.meta.dirname, 'index.html'), game: resolve(import.meta.dirname, 'game', 'index.html') };
 for (const d of labs) input[d] = resolve(import.meta.dirname, 'labs', d, 'index.html');
 
 export default defineConfig({

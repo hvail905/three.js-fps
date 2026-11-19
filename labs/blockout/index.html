@@ -57,6 +57,8 @@
       <button id="tNew">New</button>
       <button id="tCopy">Copy layout</button>
       <button id="tLoad">Load layout</button>
+      <button id="tSave">Save .json</button>
+      <select id="tLevels" title="Levels in data/levels"></select>
       <button id="tSample">Sample street</button>
     </div>
     <div id="status"></div>
@@ -78,12 +80,15 @@ import { createFacadeLibrary } from '../../src/assets/facades.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createLevelKit } from '../../src/world/level.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from '../../src/sim/movement.js';
 
 const $ = id => document.getElementById(id);
 const KITS = { props: createPropLibrary(THREE), vehicles: createVehicleLibrary(THREE), facades: createFacadeLibrary(THREE) };
+// level building is shared with the game: src/world/level.js
+const LK = createLevelKit(THREE, KITS);
+const { PRIMS, MARKERS, COLORS, gridTex, primMat, buildRecord } = LK;
 const D2R = THREE.MathUtils.degToRad;
 
 // ---------- layout data ----------
@@ -92,23 +97,7 @@ const D2R = THREE.MathUtils.degToRad;
 let layout = { version: 1, objects: [] };
 let nextId = 1;
 
-const PRIMS = {
-  block: { label: 'Block', params: { w: 4, h: 3, d: 4, color: 'grey' } },
-  wall: { label: 'Wall', params: { w: 6, h: 3, d: 0.3, color: 'dark' } },
-  platform: { label: 'Platform', params: { w: 6, h: 1, d: 6, color: 'light' } },
-  ramp: { label: 'Ramp', params: { w: 3, h: 2, angle: 30, color: 'light' } },
-  stairs: { label: 'Stairs', params: { w: 2, h: 3, rise: 0.2, run: 0.3, color: 'light' } },
-  pillar: { label: 'Pillar', params: { r: 0.4, h: 4, color: 'dark' } },
-  cover: { label: 'Low cover', params: { w: 2, h: 1.1, d: 0.6, color: 'yellow' } },
-};
-const MARKERS = {
-  playerSpawn: { label: 'Player spawn', color: 0x22c55e },
-  enemySpawn: { label: 'Enemy spawn', color: 0xef4444 },
-  objective: { label: 'Objective', color: 0xf2c14e },
-  coverPoint: { label: 'Cover point', color: 0x3b82f6 },
-  patrolPoint: { label: 'Patrol point', color: 0xa855f7 },
-};
-const COLORS = { grey: ['#bdbdbd', '#2a2a2a'], light: ['#e6e6e6', '#333333'], dark: ['#5a5a5a', '#1a1a1a'], yellow: ['#f2c14e', '#3a2a00'], red: ['#d9534f', '#3a0f0e'], blue: ['#5b8bd9', '#10213d'] };
+
 
 // ---------- renderer ----------
 const main = document.querySelector('main');
@@ -129,24 +118,6 @@ sun.position.set(40, 70, 30); sun.castShadow = true; sun.shadow.mapSize.set(2048
 Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 250 }); sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-function gridTex(bg, fg) {
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 128, 128); g.fillStyle = fg; g.fillRect(0, 0, 128, 3); g.fillRect(0, 0, 3, 128);
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
-}
-const matCache = {};
-function primMat(name) {
-  if (!matCache[name]) { const [bg, fg] = COLORS[name] || COLORS.grey; matCache[name] = new THREE.MeshStandardMaterial({ map: gridTex(bg, fg), roughness: 0.9 }); }
-  return matCache[name];
-}
-function worldUV(geo) { // object-space 1 m grid (good enough for blockout; textures follow the object)
-  const pos = geo.attributes.position, nrm = geo.attributes.normal, uv = geo.attributes.uv;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), nx = Math.abs(nrm.getX(i)), ny = Math.abs(nrm.getY(i)), nz = Math.abs(nrm.getZ(i));
-    if (nz >= nx && nz >= ny) uv.setXY(i, x, y); else if (nx >= ny) uv.setXY(i, z, y); else uv.setXY(i, x, z);
-  }
-  return geo;
-}
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: (() => { const t = gridTex('#d9d9d9', '#9a9a9a'); t.repeat.set(400, 400); return t; })(), roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 const axes = new THREE.Group(); scene.add(axes);
@@ -159,61 +130,15 @@ for (const [dir, col] of [[[1, 0, 0], 0xd9534f], [[0, 0, 1], 0x5b8bd9]]) {
 const world = new THREE.Group(); scene.add(world);
 const byId = new Map();
 
-function buildPrim(kind, p) {
-  const g = new THREE.Group(), m = primMat(p.color);
-  const add = (geo, x, y, z, ry = 0) => { const mesh = new THREE.Mesh(worldUV(geo), m); mesh.position.set(x, y, z); mesh.rotation.y = ry; mesh.castShadow = mesh.receiveShadow = true; g.add(mesh); return mesh; };
-  if (kind === 'ramp') {
-    const run = p.h / Math.tan(D2R(Math.min(80, Math.max(5, p.angle))));
-    const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(run, 0); s.lineTo(run, p.h); s.closePath();
-    const geo = new THREE.ExtrudeGeometry(s, { depth: p.w, bevelEnabled: false }); geo.translate(-run / 2, 0, -p.w / 2);
-    add(geo, 0, 0, 0, Math.PI / 2); // rises toward -Z
-  } else if (kind === 'stairs') {
-    const n = Math.max(1, Math.round(p.h / p.rise)), rise = p.h / n, L = n * p.run;
-    for (let k = 0; k < n; k++) add(new THREE.BoxGeometry(p.w, rise * (k + 1), p.run), 0, (rise * (k + 1)) / 2, L / 2 - p.run * (k + 0.5));
-  } else if (kind === 'pillar') {
-    add(new THREE.CylinderGeometry(p.r, p.r, p.h, 12), 0, p.h / 2, 0);
-  } else {
-    add(new THREE.BoxGeometry(p.w, p.h, p.d), 0, p.h / 2, 0);
-  }
-  return g;
-}
-function buildMarker(kind) {
-  const g = new THREE.Group(), col = MARKERS[kind].color;
-  const m = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.35, transparent: true, opacity: 0.85 });
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 20), m); base.position.y = 0.025; g.add(base);
-  const pole = new THREE.Mesh(kind === 'objective' ? new THREE.OctahedronGeometry(0.4) : new THREE.ConeGeometry(0.25, 0.9, 12), m);
-  pole.position.y = kind === 'objective' ? 1.4 : 0.5; g.add(pole);
-  if (kind.endsWith('Spawn')) { const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 8), m); arrow.rotation.x = -Math.PI / 2; arrow.position.set(0, 0.3, -0.7); g.add(arrow); }
-  g.userData.marker = true;
-  return g;
-}
-function buildRecord(rec) {
-  let obj;
-  try {
-    if (rec.type === 'prim') obj = buildPrim(rec.kind, rec.params);
-    else if (rec.type === 'marker') obj = buildMarker(rec.kind);
-    else obj = KITS[rec.kit].build({ prop: rec.kind, params: rec.params || {} });
-  } catch (e) { console.error(e); obj = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), primMat('red')); }
-  obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  const root = new THREE.Group(); root.add(obj);
-  root.position.set(...rec.pos); root.rotation.y = D2R(rec.rotY || 0);
-  root.userData.rec = rec;
-  return root;
-}
-function disposeRoot(root) {
-  const rec = root.userData.rec;
-  if (rec.type === 'kit') KITS[rec.kit].dispose(root.children[0]);
-  else root.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
-}
 function addRecord(rec) { const root = buildRecord(rec); world.add(root); byId.set(rec.id, root); return root; }
 function rebuildRecord(rec) {
   const old = byId.get(rec.id); const wasSel = selected === old;
-  if (old) { if (wasSel) tc.detach(); world.remove(old); disposeRoot(old); }
+  if (old) { if (wasSel) tc.detach(); world.remove(old); LK.disposeRecord(old); }
   const root = addRecord(rec); if (wasSel) select(root);
 }
 function rebuildAll() {
   select(null);
-  for (const r of [...world.children]) { world.remove(r); disposeRoot(r); }
+  for (const r of [...world.children]) { world.remove(r); LK.disposeRecord(r); }
   byId.clear();
   for (const rec of layout.objects) addRecord(rec);
   nextId = layout.objects.reduce((m, r) => Math.max(m, r.id), 0) + 1;
@@ -342,7 +267,7 @@ function removeSelected() {
   if (!selected) return;
   const rec = selected.userData.rec;
   layout.objects = layout.objects.filter(r => r !== rec);
-  tc.detach(); world.remove(selected); disposeRoot(selected); byId.delete(rec.id); select(null); save();
+  tc.detach(); world.remove(selected); LK.disposeRecord(selected); byId.delete(rec.id); select(null); save();
 }
 const snapSize = () => parseFloat($('snap').value);
 $('snap').onchange = () => tc.setTranslationSnap(snapSize() || null);
@@ -421,6 +346,19 @@ $('tLoad').onclick = () => modal('Paste a layout JSON:', '', text => {
   layout = { version: 1, objects: d.objects.filter(r => r && Array.isArray(r.pos) && (r.type === 'prim' ? PRIMS[r.kind] : r.type === 'marker' ? MARKERS[r.kind] : KITS[r.kit] && KITS[r.kit].props[r.kind])) };
   rebuildAll(); toast(`Loaded ${layout.objects.length} objects`);
 });
+// level files the game loads (data/levels/*.json): open one here, edit, then Save .json back into that folder
+const LEVEL_FILES = import.meta.glob('../../data/levels/*.json', { eager: true, import: 'default' });
+$('tLevels').innerHTML = '<option value="">Open level file...</option>' + Object.entries(LEVEL_FILES).map(([p, L]) => `<option value="${p}">${L.name || p.split('/').pop()}</option>`).join('');
+$('tLevels').onchange = () => {
+  const L = LEVEL_FILES[$('tLevels').value]; if (!L) return;
+  layout = { version: 1, name: L.name, objects: JSON.parse(JSON.stringify(L.objects)) }; rebuildAll(); toast(`Opened ${L.name || 'level'}`); $('tLevels').value = '';
+};
+$('tSave').onclick = () => {
+  const name = layout.name || 'New level', file = { kind: 'level', version: 1, name, objects: layout.objects };
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: 'application/json' }));
+  a.download = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('Saved. Put it in data/levels/ to play it.');
+};
 $('tSample').onclick = () => { layout = sampleLayout(); rebuildAll(); toast('Sample street loaded'); };
 
 function sampleLayout() {
@@ -448,32 +386,8 @@ function sampleLayout() {
 // ---------- walk test (movement sim on the layout) ----------
 let walking = false, walkCollider = null, player = null, accumulator = 0;
 const look = { yaw: 0, pitch: 0 }, keys = {}, prevPos = new THREE.Vector3(); let jumpLatch = false;
-function buildCollider() {
-  const geos = [];
-  world.updateMatrixWorld(true);
-  const floor = new THREE.BoxGeometry(400, 1, 400); floor.translate(0, -0.5, 0); geos.push(floor);
-  for (const root of world.children) {
-    const rec = root.userData.rec;
-    if (rec.type === 'marker') continue;
-    if (rec.type === 'prim') {
-      root.traverse(o => { if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); geos.push(g); } });
-    } else {
-      // kit assets collide as their oriented bounding box
-      const inner = root.children[0];
-      const bb = new THREE.Box3();
-      inner.updateMatrixWorld(true);
-      const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
-      inner.traverse(o => { if (o.isMesh && !o.userData.isPropLight) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); bb.union(b); } });
-      if (bb.isEmpty()) continue;
-      const s = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3());
-      const g = new THREE.BoxGeometry(Math.max(0.05, s.x), Math.max(0.05, s.y), Math.max(0.05, s.z)); g.translate(c.x, c.y, c.z); g.applyMatrix4(root.matrixWorld); geos.push(g);
-    }
-  }
-  const clean = geos.map(g => { const ng = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(ng.attributes)) if (k !== 'position') ng.deleteAttribute(k); return ng; });
-  const merged = mergeGeometries(clean, false);
-  merged.boundsTree = new MeshBVH(merged);
-  return merged;
-}
+function buildCollider() { return LK.buildCollider(world.children).geometry; }
+
 function startWalk() {
   if (walking) return;
   stopPlacing(); select(null);
