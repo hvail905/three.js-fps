@@ -63,8 +63,9 @@ test('sewer levels: rectangular map, everything placed on open cells, triggers i
     for (const t of L.triggers) { const [c0, r0, c1, r1] = t.cells; assert.ok(c0 <= c1 && r0 <= r1 && c1 < W && r1 < L.map.length, `${f}: trigger ${t.id}`); }
     assert.ok(L.triggers.some(t => t.kind === 'exit'), `${f}: has an exit`);
     // free-standing props never sit on a cell where something has to stand
-    const FREE = new Set(['gurney', 'chair', 'crate', 'barrel', 'table']), key = c => c.join(',');
+    const FREE = new Set(['gurney', 'chair', 'crate', 'barrel']), key = c => c.join(','); // tables are surfaces: items may sit on them
     const taken = new Set([L.player.cell, ...L.zombies.map(z => z.cell), ...L.pickups.map(k => k.cell)].map(key));
+    for (const pr of L.props || []) if (pr.kind === 'table') assert.ok(![L.player.cell, ...L.zombies.map(z => z.cell)].map(key).includes(key(pr.cell)), `${f}: table at ${pr.cell} blocks a spawn`);
     for (const pr of L.props || []) if (FREE.has(pr.kind)) assert.ok(!taken.has(key(pr.cell)), `${f}: ${pr.kind} at ${pr.cell} blocks a spawn or pickup`);
     // wall-mounted things face a wall; doors sit in an opening
     const D = { n: [0, -1], s: [0, 1], w: [-1, 0], e: [1, 0] };

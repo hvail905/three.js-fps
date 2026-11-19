@@ -6,6 +6,9 @@ import { TICK, DEFAULT_PARAMS, makeCommand, makePlayer, stepPlayer } from './mov
 import { makeGunState, stepGun, damageAt } from './gun.js';
 import { makeWorld as makeNav, findPath, rng } from './ai.js';
 import { HUMANOID_HITBOXES } from './world.js';
+import { makePhysProps, PHYS_KINDS } from './physprops.js';
+
+const SURF_INDEX = { concrete: 0, metal: 1, wood: 2, glass: 3, dirt: 4, asphalt: 5, water: 6, flesh: 7 }; // matches SURFACES in world/level.js
 
 export { TICK };
 
@@ -15,7 +18,8 @@ export const SURVIVAL_RULES = {
     fists: { damage: 9, range: 1.35, windup: 0.09, recover: 0.38, stagger: 0.3, noise: 5 },
     pipe: { damage: 26, range: 1.8, windup: 0.16, recover: 0.55, stagger: 0.7, noise: 7, durability: 14 },
   },
-  kick: { damage: 5, range: 1.6, cone: 0.9, push: 2.4, cooldown: 0.9, stagger: 1.0, windup: 0.12, noise: 5 },
+  kick: { damage: 5, range: 1.6, cone: 0.9, push: 2.4, cooldown: 0.9, stagger: 1.0, windup: 0.12, noise: 5, propImpulse: 95 },
+  props: { pipeImpulse: 30, fistImpulse: 12, bulletImpulse: 14, brickImpulse: 22, noise: 6 }, // loose physical objects
   throw: {
     brick: { damage: 24, speed: 14, stagger: 0.9, noise: 11, cooldown: 0.6 },
     bottle: { damage: 9, speed: 16, stagger: 0.45, noise: 16, cooldown: 0.5 },
@@ -36,7 +40,8 @@ const LIMB_OF = (box) => box.part === 'arm' || box.part === 'leg' ? box.part + (
 const arr = v => [v.x, v.y, v.z];
 
 // def: level data (data/sewer/*.json). level: buildSewer() output (collider, bounds). pistolStats from data/weapons.
-export function makeSurvival({ def, collider, bounds, moveParams = DEFAULT_PARAMS, pistolStats, rules = SURVIVAL_RULES, seed = 1 }) {
+// layout (optional): buildSewer() output; its dynamics (crates, barrels, junk) and staticBoxes go into the physics world.
+export function makeSurvival({ def, collider, bounds, moveParams = DEFAULT_PARAMS, pistolStats, rules = SURVIVAL_RULES, seed = 1, layout = null }) {
   const C = def.cell, cc = ([c, r]) => [c * C + C / 2, r * C + C / 2];
   const bvh = collider.bvh, box = new THREE.Box3(), ident = new THREE.Matrix4();
   // nav: a 0.5 m grid; cells where a standing body (0.4 - 1.7 m) hits geometry are blocked, so vents (1.25 m) are off-limits to zombies
@@ -59,6 +64,8 @@ export function makeSurvival({ def, collider, bounds, moveParams = DEFAULT_PARAM
   };
   world.player.body.yaw = world.player.yaw;
   for (const p of world.pickups) p.pos = [p.pos[0], groundY(world, p.pos[0], p.pos[1]), p.pos[1]];
+  world.phys = makePhysProps({ def, statics: layout ? layout.staticBoxes : [], dynamics: layout ? layout.dynamics : [], rand: R });
+  for (const k of world.pickups) k.phys = world.phys.add(k.kind, k.pos, { yaw: R() * 6, ref: k });
   for (const z of world.zombies) z.pos.y = groundY(world, z.pos.x, z.pos.z);
   return world;
 }
@@ -78,6 +85,24 @@ export function makeSurvivalInput() {
 }
 
 // ---------------------------------------------------------------- queries
+// What the player is looking at within reach: a pickup to take, or a loose prop to shove or kick.
+// Shared by the sim (use) and the presentation (prompt), so the prompt always names what E will take.
+export function lookTarget(world) {
+  const p = world.player, o = eye(p), d = viewDir(p);
+  let pickup = null, best = 0.86;
+  for (const k of world.pickups) {
+    if (k.taken) continue;
+    const c = new THREE.Vector3(k.pos[0], k.pos[1] + 0.05, k.pos[2]), to = c.sub(o), dist = to.length();
+    if (dist > 2.2) continue;
+    const dot = to.normalize().dot(d) + (dist < 0.9 ? 0.08 : 0); // things at your feet count even off-centre
+    if (dot > best) { best = dot; pickup = k; }
+  }
+  if (!pickup) { let bd = 0.75; for (const k of world.pickups) if (!k.taken) { const dd = Math.hypot(k.pos[0] - p.body.pos.x, k.pos[2] - p.body.pos.z); if (dd < bd) { bd = dd; pickup = k; } } } // standing on it
+  else { const w = castWorld(world, o, new THREE.Vector3(pickup.pos[0], pickup.pos[1] + 0.05, pickup.pos[2]).sub(o).normalize(), 2.2); const dd = Math.hypot(pickup.pos[0] - o.x, pickup.pos[1] + 0.05 - o.y, pickup.pos[2] - o.z); if (w && w.dist < dd - 0.15) pickup = null; }
+  const ph = world.phys ? world.phys.raycast(arr(o), arr(d), 2.0) : null, wall = castWorld(world, o, d, 2.0);
+  const prop = ph && ph.obj.heavy && (!wall || ph.dist < wall.dist) ? ph.obj : null;
+  return { pickup, prop };
+}
 const _ray = new THREE.Ray(), _down = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
 export function groundY(world, x, z, from = 2) {
   _down.origin.set(x, from, z);
@@ -155,6 +180,19 @@ export function stepSurvival(world, inp) {
   if (p.alive && !p.escaped) stepPlayerSurvival(world, inp || makeSurvivalInput(), ev);
   stepThrown(world, ev);
   if (world.tick % 2 === 0) for (const z of world.zombies) if (z.alive) stepZombie(world, z, ev, TICK * 2, inp ? inp.light : true);
+  // loose objects: the player and every zombie shove what they walk into, then the physics world steps
+  {
+    const b = p.body, [cx, cz] = world.phys.pushCircle(b.pos.x, b.pos.z, 0.36, b.vel.x, b.vel.z, b.pos.y + 0.05, b.pos.y + b.height, 1);
+    b.pos.x += cx; b.pos.z += cz;
+    for (const z of world.zombies) if (z.alive) {
+      const vx = z.pos.x - (z.px ?? z.pos.x), vz = z.pos.z - (z.pz ?? z.pos.z); z.px = z.pos.x; z.pz = z.pos.z;
+      const [zx, zz] = world.phys.pushCircle(z.pos.x, z.pos.z, z.crawl ? 0.3 : 0.32, vx / TICK, vz / TICK, z.pos.y + 0.05, z.pos.y + (z.crawl ? 0.4 : 1.6), 1.2);
+      z.pos.x += zx * 0.5; z.pos.z += zz * 0.5; // zombies lean through clutter: they mostly win
+    }
+    world.phys.step(TICK);
+    for (const bm of world.phys.bumps) { ev.push({ type: 'propBump', ...bm, surface: SURF_INDEX[PHYS_KINDS[bm.kind].surface] }); if (bm.power > 0.5) noise(world, { x: bm.point[0], z: bm.point[2] }, RU.props.noise * bm.power, 'clatter'); }
+    for (const k of world.pickups) if (k.phys) { const q = k.phys.body.position; k.pos[0] = q.x; k.pos[1] = q.y - k.phys.half[1]; k.pos[2] = q.z; }
+  }
   // keep the player out of zombie bodies
   for (const z of world.zombies) if (z.alive) {
     const dx = p.body.pos.x - z.pos.x, dz = p.body.pos.z - z.pos.z, d = Math.hypot(dx, dz), min = z.crawl ? 0.5 : 0.65;
@@ -193,11 +231,7 @@ function stepPlayerSurvival(world, inp, ev) {
   }
 
   // pickups (use) and triggers
-  if (inp.use) {
-    let best = null, bd = 1.7;
-    for (const k of world.pickups) if (!k.taken) { const d = Math.hypot(k.pos[0] - body.pos.x, k.pos[2] - body.pos.z); if (d < bd) { bd = d; best = k; } }
-    if (best) take(world, best, ev);
-  }
+  if (inp.use) { const best = lookTarget(world).pickup; if (best) take(world, best, ev); }
   const cellC = Math.floor(body.pos.x / world.def.cell), cellR = Math.floor(body.pos.z / world.def.cell);
   for (const t of world.def.triggers || []) {
     if (world.triggers.has(t.id)) continue;
@@ -251,8 +285,9 @@ function stepPlayerSurvival(world, inp, ev) {
       const shot = { type: 'shot', origin: arr(o), recoil: res.recoil, ends: [] }; ev.push(shot);
       for (const s of res.shots) {
         const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(inp.pitch + s.pitch, inp.yaw + s.yaw, 0, 'YXZ'));
-        const w = castWorld(world, o, dir, 150), zh = castZombies(world, o, dir, w ? w.dist : 150);
-        if (zh) { world.stats.hits++; const dmg = damageAt(S, zh.dist, zh.box.zone) * (zh.box.zone === 'head' ? 1.0 : 1); damageZombie(world, ev, zh.z, zh.limb, zh.box.zone, dmg, { dir, point: zh.point, stagger: 0.35, source: 'bullet' }); shot.ends.push(arr(zh.point)); }
+        const w = castWorld(world, o, dir, 150), ph = world.phys.raycast(arr(o), arr(dir), w ? w.dist : 150), zh = castZombies(world, o, dir, ph ? ph.dist : w ? w.dist : 150);
+        if (ph && !zh) { world.phys.blast(ph.point, arr(dir), RU.props.bulletImpulse, 0.1, x => x === ph.obj); ev.push({ type: 'impact', point: ph.point, normal: ph.normal, surface: SURF_INDEX[PHYS_KINDS[ph.obj.kind].surface], dir: arr(dir), prop: ph.obj.id }); shot.ends.push(ph.point); }
+        else if (zh) { world.stats.hits++; const dmg = damageAt(S, zh.dist, zh.box.zone) * (zh.box.zone === 'head' ? 1.0 : 1); damageZombie(world, ev, zh.z, zh.limb, zh.box.zone, dmg, { dir, point: zh.point, stagger: 0.35, source: 'bullet' }); shot.ends.push(arr(zh.point)); }
         else if (w) { ev.push({ type: 'impact', point: arr(w.point), normal: arr(w.normal), surface: w.surface, dir: arr(dir) }); shot.ends.push(arr(w.point)); }
         else shot.ends.push(arr(o.clone().addScaledVector(dir, 150)));
       }
@@ -276,7 +311,7 @@ function take(world, k, ev) {
     case 'bottle': ok = add('bottles', 1, cap.bottle); break;
     case 'bandage': ok = add('bandages', 1, cap.bandage); break;
   }
-  if (ok) { k.taken = true; ev.push({ type: 'pickup', id: k.id, kind: k.kind, slot: p.slot }); }
+  if (ok) { k.taken = true; if (k.phys) { world.phys.remove(k.phys); k.phys = null; } ev.push({ type: 'pickup', id: k.id, kind: k.kind, slot: p.slot }); }
   else ev.push({ type: 'pickupFull', kind: k.kind });
 }
 
@@ -293,6 +328,10 @@ function resolveMelee(world, a, ev) {
       z.knock = { vx: fwd.x * K.push / 0.25, vz: fwd.z * K.push / 0.25, t: 0.25 };
       damageZombie(world, ev, z, 'torso', 'body', K.damage, { dir: fwd, point: new THREE.Vector3(z.pos.x, z.pos.y + 1.0, z.pos.z), blunt: true, stagger: K.stagger, source: 'kick' });
     }
+    const foot = [p.body.pos.x + fwd.x * 0.85, p.body.pos.y + 0.45, p.body.pos.z + fwd.z * 0.85];
+    const knocked = world.phys.blast(foot, [fwd.x, 0.15, fwd.z], K.propImpulse, 0.75);
+    for (const o of knocked) ev.push({ type: 'propHit', id: o.id, kind: o.kind, point: [o.body.position.x, o.body.position.y, o.body.position.z], surface: SURF_INDEX[PHYS_KINDS[o.kind].surface], power: o.heavy ? 1 : 0.4, source: 'kick' });
+    if (knocked.length) hitAny = true;
     noise(world, p.body.pos, hitAny ? K.noise : 0, 'melee');
     ev.push({ type: 'kickResolve', hit: hitAny });
     return;
@@ -305,8 +344,12 @@ function resolveMelee(world, a, ev) {
     const c = new THREE.Vector3(z.pos.x, z.pos.y + (z.crawl ? 0.3 : 1.2), z.pos.z), to = c.clone().sub(o), d = to.length();
     if (d < M.range + 0.25 && to.normalize().dot(dir) > 0.8) { zh = { z, box: { part: 'torso', zone: 'body', x: 0 }, limb: 'torso', point: c, dist: d }; break; }
   }
-  const w = castWorld(world, o, dir, M.range);
-  if (zh && (!w || zh.dist <= w.dist + 0.1)) {
+  const w = castWorld(world, o, dir, M.range), ph = world.phys.raycast(arr(o), arr(dir), M.range);
+  if (ph && (!w || ph.dist < w.dist) && (!zh || ph.dist < zh.dist - 0.05)) {
+    world.phys.blast(ph.point, arr(dir), a.weapon === 'pipe' ? RU.props.pipeImpulse : RU.props.fistImpulse, 0.15, x => x === ph.obj);
+    ev.push({ type: 'propHit', id: ph.obj.id, kind: ph.obj.kind, point: ph.point, normal: ph.normal, surface: SURF_INDEX[PHYS_KINDS[ph.obj.kind].surface], power: a.weapon === 'pipe' ? 0.8 : 0.4, source: a.weapon });
+    noise(world, new THREE.Vector3(...ph.point), RU.props.noise, 'melee'); wear(world, a.weapon, 0.5, ev);
+  } else if (zh && (!w || zh.dist <= w.dist + 0.1)) {
     const mult = zh.box.zone === 'head' ? 1.5 : zh.box.zone === 'limb' ? 0.9 : 1;
     damageZombie(world, ev, zh.z, zh.limb, zh.box.zone, M.damage * mult, { dir, point: zh.point, blunt: true, stagger: M.stagger, source: a.weapon });
     noise(world, zh.point, M.noise, 'melee');
@@ -329,7 +372,12 @@ function stepThrown(world, ev) {
     const t = world.thrown[i], T = world.rules.throw[t.kind], start = t.pos.clone();
     t.vel.y -= 9.81 * TICK; t.pos.addScaledVector(t.vel, TICK); t.life -= TICK;
     const seg = t.pos.clone().sub(start), len = seg.length(); seg.normalize();
-    const w = castWorld(world, start, seg, len), zh = castZombies(world, start, seg, w ? w.dist : len);
+    const w = castWorld(world, start, seg, len), zh = castZombies(world, start, seg, w ? w.dist : len), ph = world.phys.raycast(arr(start), arr(seg), w ? w.dist : len);
+    if (ph && (!zh || ph.dist < zh.dist)) {
+      world.phys.blast(ph.point, arr(seg), RU.props.brickImpulse * (t.kind === 'bottle' ? 0.4 : 1), 0.1, x => x === ph.obj);
+      ev.push({ type: 'propHit', id: ph.obj.id, kind: ph.obj.kind, point: ph.point, surface: SURF_INDEX[PHYS_KINDS[ph.obj.kind].surface], power: 0.6, source: t.kind });
+      landThrown(world, t, new THREE.Vector3(...ph.point), new THREE.Vector3(...ph.normal), ev, false); world.thrown.splice(i, 1); continue;
+    }
     if (zh) {
       damageZombie(world, ev, zh.z, zh.limb, zh.box.zone, T.damage * (zh.box.zone === 'head' ? 1.4 : 1), { dir: seg, point: zh.point, blunt: true, stagger: T.stagger, source: t.kind });
       landThrown(world, t, zh.point, new THREE.Vector3(0, 1, 0), ev, true); world.thrown.splice(i, 1); continue;
@@ -345,7 +393,8 @@ function landThrown(world, t, point, normal, ev, hitZombie) {
   else {
     // bricks can be picked up again where they land
     const y = groundY(world, point.x, point.z, point.y + 0.3);
-    const k = { id: world.nextId++, kind: 'brick', pos: [point.x - normal.x * 0 + normal.x * 0.15, y, point.z + normal.z * 0.15], taken: false };
+    const k = { id: world.nextId++, kind: 'brick', pos: [point.x + normal.x * 0.15, Math.max(y, point.y + normal.y * 0.1), point.z + normal.z * 0.15], taken: false };
+    k.phys = world.phys.add('brick', [k.pos[0], k.pos[1], k.pos[2]], { yaw: world.rand() * 6, vel: [t.vel.x * 0.25 + normal.x, Math.abs(t.vel.y) * 0.15 + 1, t.vel.z * 0.25 + normal.z], ref: k });
     world.pickups.push(k);
     ev.push({ type: 'thud', id: t.id, point: arr(point), pickup: k, hitZombie });
   }

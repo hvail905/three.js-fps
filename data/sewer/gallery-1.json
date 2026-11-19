@@ -179,8 +179,8 @@
   {
    "kind": "ammo",
    "cell": [
-    24,
-    16
+    23,
+    17
    ]
   },
   {
@@ -966,7 +966,8 @@
     23,
     17
    ],
-   "rot": 0
+   "rot": 0,
+   "bare": true
   },
   {
    "kind": "barrel",
@@ -974,6 +975,24 @@
     25,
     18
    ]
+  },
+  {
+   "kind": "table",
+   "cell": [
+    22,
+    6
+   ],
+   "rot": 90,
+   "bare": true
+  },
+  {
+   "kind": "table",
+   "cell": [
+    21,
+    5
+   ],
+   "rot": 0,
+   "bare": true
   }
  ],
  "ambientSky": "#2c4a48",

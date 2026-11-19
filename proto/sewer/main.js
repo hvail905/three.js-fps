@@ -16,7 +16,7 @@ import { createGore } from '../../src/fx/gore.js';
 import { SOUNDS, SPACES, playSound, impulse } from '../../src/audio/sfx.js';
 import { DEFAULT_PARAMS } from '../../src/sim/movement.js';
 import { makeGunState } from '../../src/sim/gun.js';
-import { makeSurvival, stepSurvival, makeSurvivalInput, groundY, TICK, SURVIVAL_RULES } from '../../src/sim/survival.js';
+import { makeSurvival, stepSurvival, makeSurvivalInput, groundY, lookTarget, TICK, SURVIVAL_RULES } from '../../src/sim/survival.js';
 
 const AUTOTEST = location.hash === '#autotest';
 const $ = id => document.getElementById(id);
@@ -157,16 +157,28 @@ const ZONE = { head: 'head', torso: 'torso', armL: 'arm', armR: 'arm', legL: 'le
 
 // ---------------------------------------------------------------- pickups
 const PICK_LABEL = { pipe: 'length of pipe', pistol: 'pistol', ammo: 'pistol rounds', brick: 'brick', bottle: 'bottle', bandage: 'bandage' };
+// Usable things stand apart from the grime the way Gloomwood's do: cleaner, slightly warmer and brighter
+// materials, a faint self-light so they never sink fully into shadow, and a glint that catches the eye
+// from across a room every few seconds. Meshes are centred so they turn about their physics body.
+const glintTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d'); const r = g.createRadialGradient(16, 16, 0, 16, 16, 16); r.addColorStop(0, 'rgba(255,250,230,1)'); r.addColorStop(0.15, 'rgba(255,230,180,0.6)'); r.addColorStop(1, 'rgba(255,220,160,0)'); g.fillStyle = r; g.fillRect(0, 0, 32, 32); g.fillStyle = 'rgba(255,250,235,0.9)'; g.fillRect(15, 2, 2, 28); g.fillRect(2, 15, 28, 2); return new THREE.CanvasTexture(c); })();
+const glintMat = new THREE.SpriteMaterial({ map: glintTex, color: 0xffe8c0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
 function pickupMesh(kind) {
   let m;
-  if (kind === 'pipe' || kind === 'pistol') { m = WLIB.build({ prop: kind }); m.rotation.z = Math.PI / 2; m.rotation.y = Math.random() * 3; }
-  else if (kind === 'brick') m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.065, 0.1), new THREE.MeshStandardMaterial({ color: 0x6e3b2a, roughness: 0.9 }));
-  else if (kind === 'bottle') { m = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.24, 10), new THREE.MeshStandardMaterial({ color: 0x2f5a2c, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.8 })); m.rotation.z = Math.PI / 2; }
-  else if (kind === 'ammo') m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.08), new THREE.MeshStandardMaterial({ color: 0x5a5236, roughness: 0.7 }));
-  else m = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.09, 12), new THREE.MeshStandardMaterial({ color: 0xd9d2c4, roughness: 0.9 }));
+  const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: o.r ?? 0.6, metalness: o.m ?? 0, emissive: o.e ?? color, emissiveIntensity: o.ei ?? 0.2, transparent: !!o.t, opacity: o.t ?? 1 });
+  if (kind === 'pipe' || kind === 'pistol') { m = WLIB.build({ prop: kind }); m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.multiplyScalar(2.2); o.material.metalness = Math.min(o.material.metalness, 0.35); o.material.roughness = Math.min(o.material.roughness, 0.45); o.material.emissive = o.material.color.clone(); o.material.emissiveIntensity = 0.25; } }); } // oiled, clean metal against the grime
+  else if (kind === 'brick') m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.065, 0.1), M(0x9a4a32, { r: 0.85 }));
+  else if (kind === 'bottle') { m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.17, 10), M(0x3a8a3a, { r: 0.08, m: 0.1, t: 0.85, ei: 0.2 })), new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.03, 0.07, 8).translate(0, 0.12, 0), M(0x3a8a3a, { r: 0.08, t: 0.85, ei: 0.2 }))); m.children[0].position.y = -0.0; m.position.y = -0.03; }
+  else if (kind === 'ammo') { m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.08), M(0x6a6038)), new THREE.Mesh(new THREE.BoxGeometry(0.122, 0.025, 0.082), M(0xc8a030, { ei: 0.25 }))); }
+  else { m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.09, 12), M(0xe8e2d4, { r: 0.9, ei: 0.2 })), new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.092, 0.082), M(0xb02018, { ei: 0.3 }))); } // bandage roll with a red cross band
   m.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
-  const g = new THREE.Group(); g.add(m); return g;
+  // centre on the bounding box so physics rotation pivots correctly
+  const inner = new THREE.Group(); inner.add(m); const bb = new THREE.Box3().setFromObject(inner), c = bb.getCenter(new THREE.Vector3()); m.position.sub(c);
+  inner.scale.setScalar(1.35); // drawn a little larger than life so they read at a glance; physics keeps the true size
+  const g = new THREE.Group(); g.add(inner);
+  const sp = new THREE.Sprite(glintMat.clone()); sp.scale.setScalar(0.12); sp.material.opacity = 0; g.add(sp); g.userData.glint = sp; g.userData.phase = Math.random() * 10;
+  return g;
 }
+const PROP_HINT = { crate: 'crate', barrel: 'drum' };
 
 // ---------------------------------------------------------------- round
 let world = null, zvis = new Map(), pvis = new Map(), thrownVis = new Map(), ended = false, deadT = 0;
@@ -174,10 +186,11 @@ const lookYP = { yaw: 0, pitch: 0 }, recoilOff = { yaw: 0, pitch: 0 };
 const prevPos = new THREE.Vector3(); let prevHeight = 1.8;
 function startRound() {
   for (const v of zvis.values()) { scene.remove(v.obj); ZK.dispose(v.obj); } zvis.clear();
+  for (const d of level.dynamics) d.synced = false;
   for (const v of pvis.values()) scene.remove(v); pvis.clear();
   for (const v of thrownVis.values()) scene.remove(v); thrownVis.clear();
   gore.clear();
-  world = makeSurvival({ def, collider: level.collider, bounds: level.bounds, moveParams: P, pistolStats: pistolData.stats, seed: 11 });
+  world = makeSurvival({ def, collider: level.collider, bounds: level.bounds, moveParams: P, pistolStats: pistolData.stats, seed: 11, layout: level });
   lookYP.yaw = world.player.yaw; lookYP.pitch = -0.05; recoilOff.yaw = recoilOff.pitch = 0;
   world.zombies.forEach((z, i) => {
     const obj = ZK.build(ZOMBIE_VARIANTS[i % ZOMBIE_VARIANTS.length], 3 + i * 7, z.height); obj.position.copy(z.pos); obj.rotation.y = z.yaw; scene.add(obj);
@@ -188,7 +201,8 @@ function startRound() {
   ended = false; deadT = 0; $('banner').style.display = 'none'; voiceQueue.length = 0; voiceT = 0;
   setHeld();
 }
-function addPickupVis(k) { const m = pickupMesh(k.kind); m.position.set(k.pos[0], k.pos[1] + 0.04, k.pos[2]); scene.add(m); pvis.set(k.id, m); }
+function addPickupVis(k) { const m = pickupMesh(k.kind); scene.add(m); pvis.set(k.id, m); syncPickup(k, m); }
+function syncPickup(k, m) { if (k.phys) { const b = k.phys.body; m.position.set(b.position.x, b.position.y, b.position.z); m.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); } else m.position.set(k.pos[0], k.pos[1] + 0.04, k.pos[2]); }
 
 // ---------------------------------------------------------------- viewmodel: fists, pipe, pistol
 // fists: two painted arms held up in a guard; each hand animates on its own
@@ -252,7 +266,7 @@ function sampleInput() {
 }
 
 // ---------------------------------------------------------------- events
-const tmpV = new THREE.Vector3();
+const tmpV = new THREE.Vector3(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _p2 = new THREE.Vector3(), _off = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _one = new THREE.Vector3(1, 1, 1);
 let hurtT = 0, shake = 0, hitT = 0, splatAlpha = 0;
 const splat = $('splat'), sctx = splat.getContext('2d');
 function bloodOnScreen(amount) {
@@ -316,6 +330,14 @@ function onEvents(evs) {
       case 'throw': throwT = 0; sound('swing', 'throw'); break;
       case 'thrownMove': { let m = thrownVis.get(e.id); if (!m) { m = pickupMesh(e.kind); scene.add(m); thrownVis.set(e.id, m); } m.position.set(...e.pos); m.rotation.x += e.spin * TICK; break; }
       case 'shatter': { const m = thrownVis.get(e.id); if (m) { scene.remove(m); thrownVis.delete(e.id); } const p = new THREE.Vector3(...e.point); EFFECTS.sparks(ps, p, new THREE.Vector3(...e.normal), 0.8); sound('impact', 'glass', e.point, { power: 1 }); break; }
+      case 'propHit': {
+        const pt = new THREE.Vector3(...e.point), n = new THREE.Vector3(...(e.normal || [0, 1, 0])), surf = SURFACES[e.surface];
+        EFFECTS.dust(ps, pt, n, 0.4 + e.power * 0.4, surf === 'wood' ? 0x5a4630 : 0x3a3832); if (surf === 'metal') EFFECTS.sparks(ps, pt, n, 0.3 * e.power);
+        sound('impact', surf === 'metal' ? 'metal' : surf === 'wood' ? 'wood' : 'concrete', e.point, { power: 0.5 + e.power * 0.6 });
+        if (e.source === 'pipe' || e.source === 'fists') { hitStop = 0.05; shake = Math.max(shake, 0.18); }
+        break;
+      }
+      case 'propBump': { const surf = SURFACES[e.surface]; sound('impact', surf === 'metal' ? 'metal' : surf === 'wood' ? 'wood' : surf === 'glass' ? 'glass' : 'concrete', e.point, { power: 0.25 + e.power * 0.5 }); break; }
       case 'thud': { const m = thrownVis.get(e.id); if (m) { scene.remove(m); thrownVis.delete(e.id); } sound('impact', 'concrete', e.point, { power: 0.8 }); if (e.pickup) addPickupVis(e.pickup); break; }
       case 'pickup': { const m = pvis.get(e.id); if (m) { scene.remove(m); pvis.delete(e.id); } sound('reload', 'bolt', null, { speed: 1.6, weight: 0.3 }); note(`Took the ${PICK_LABEL[e.kind]}`, 1.4); if (e.kind === 'pipe' || e.kind === 'pistol') setHeld(); break; }
       case 'pickupFull': note(`Can't carry more`, 1.2); break;
@@ -458,10 +480,24 @@ function present(dt, alpha) {
     }
     ZK.animate(v.obj, v.anim, dt);
   }
-  // pickups glint slowly; nearest gets a prompt
-  let near = null, nd = 1.7;
-  for (const k of world.pickups) if (!k.taken) { const d = Math.hypot(k.pos[0] - body.pos.x, k.pos[2] - body.pos.z); if (d < nd) { nd = d; near = k; } }
-  $('prompt').style.opacity = near && !ended ? 1 : 0; if (near) $('prompt').textContent = `E  take ${PICK_LABEL[near.kind]}`;
+  // loose physical objects follow their bodies
+  for (const d of level.dynamics) {
+    const o = d.phys; if (!o) continue; const b = o.body; if (b.sleepState === 2 && d.synced) continue;
+    _q.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); _p.set(b.position.x, b.position.y, b.position.z);
+    if (d.group) { _off.set(0, -o.half[1], 0).applyQuaternion(_q); d.group.position.copy(_p).add(_off); d.group.quaternion.copy(_q); }
+    else if (d.inst) { _m4.compose(_p, _q, _one); d.inst.setMatrixAt(d.index, _m4); d.inst.instanceMatrix.needsUpdate = true; }
+    d.synced = true;
+  }
+  // pickups: follow their bodies, glint now and then when in view, and the one you look at gets the prompt
+  const aimed = lookTarget(world), camPos = camera.getWorldPosition(_p2);
+  for (const k of world.pickups) {
+    const m = pvis.get(k.id); if (!m) continue; syncPickup(k, m);
+    const dist = m.position.distanceTo(camPos), ph = (world.time + m.userData.phase) % 1.9, flash = ph < 0.3 ? Math.sin(ph / 0.3 * Math.PI) : 0;
+    m.userData.glint.material.opacity = dist < 12 ? flash * Math.min(1, (12 - dist) / 4) * (aimed.pickup === k ? 0.4 : 0.9) : 0;
+    m.userData.glint.position.set(0, 0.03, 0); m.userData.glint.scale.setScalar(0.08 + dist * 0.012);
+  }
+  const prompt = aimed.pickup ? `E  take ${PICK_LABEL[aimed.pickup.kind]}` : aimed.prop ? `Q  kick the ${PROP_HINT[aimed.prop.kind] || aimed.prop.kind}   ·   walk into it to shove` : '';
+  $('prompt').style.opacity = prompt && !ended ? 1 : 0; if (prompt) $('prompt').textContent = prompt;
   // flickering bulbs
   // lights: tubes stutter in bursts, bulbs sag and brown out, cages and emergency lamps hold steady
   for (const L of level.lights) {
@@ -512,7 +548,7 @@ function hud(dt) {
 if (AUTOTEST) {
   $('menu').classList.add('hidden');
   window.__s = {
-    get world() { return world; }, lookYP, keys, gore,
+    get world() { return world; }, lookYP, keys, gore, pvis: () => pvis,
     set attack(v) { attack = v; }, set aim(v) { aimHeld = v; }, press(code) { once[code] = true; },
     debug(on) { $('dbg').style.display = on ? 'block' : 'none'; },
     teleport(x, z, yaw) { world.player.body.pos.set(x, 0.1, z); world.player.body.vel.set(0, 0, 0); prevPos.copy(world.player.body.pos); if (yaw !== undefined) lookYP.yaw = yaw; },
