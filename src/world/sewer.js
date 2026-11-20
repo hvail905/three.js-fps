@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { SURFACES } from './level.js';
 import { PIXEL_TEXTURES } from './pixeltex.js';
-import { PROP_BUILDERS, buildFixture } from './sewer-props.js';
+import { PROP_BUILDERS, buildFixture, buildProp } from './sewer-props.js';
 import { mulberry32 } from './terrain.js';
 
 const SURF = name => Math.max(0, SURFACES.indexOf(name));
@@ -222,7 +222,7 @@ export function buildSewer(def, { visuals = true } = {}) {
   const boxOf = (geo, m) => { geo.computeBoundingBox(); const c = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3(); geo.boundingBox.getCenter(c); const h = geo.boundingBox.getSize(new THREE.Vector3()).multiplyScalar(0.5); if (m) { m.decompose(pp, q, sc); h.multiply(sc); c.applyMatrix4(m); geo.applyMatrix4(m); } geo.userData.box = { c: c.toArray(), h: h.toArray(), q: [q.x, q.y, q.z, q.w] }; return geo; };
   const WALL_KINDS = new Set(['camera', 'speaker', 'stencil', 'window', 'cabinet', 'locker', 'shelf']);
   for (const p of def.props || []) {
-    const build = PROP_BUILDERS[p.kind]; if (!build) continue;
+    if (!PROP_BUILDERS[p.kind]) continue; const build = (pp, ctx) => buildProp(pp, ctx);
     const ch = at(...p.cell), { floor: f, ceil: k } = hOf(ch);
     let out, nk = k;
     if (p.kind === 'door') { const [dc, dr] = SIDE[p.side]; nk = Math.min(k, hOf(at(p.cell[0] + dc, p.cell[1] + dr)).ceil); }

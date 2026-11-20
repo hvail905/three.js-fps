@@ -26,6 +26,25 @@ const box = (w, h, d, m, x, y, z) => { const g = new THREE.Mesh(new THREE.BoxGeo
 const cyl = (rt, rb, h, m, x, y, z, seg = 10) => { const g = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m); g.position.set(x, y, z); g.castShadow = g.receiveShadow = true; return g; };
 const solid = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
 
+// Blender-built models (tools/blender/build_props.py), when loaded. Procedural builders still supply the solids,
+// and stand in for any model that is missing.
+const MODELS = {};
+export function setPropModels(map) { Object.assign(MODELS, map); }
+const MODEL_OF = { crate: 'crate', barrel: 'drum', gurney: 'gurney', chair: 'chair', shelf: 'shelf', locker: 'locker', cabinet: 'cabinet', iv: 'iv', camera: 'camera', speaker: 'speaker' };
+export function buildProp(p, ctx) {
+  const proc = PROP_BUILDERS[p.kind]; if (!proc) return null;
+  const out = proc(p, ctx);
+  const name = p.kind === 'table' ? (p.bare ? 'table_sheet' : 'table') : MODEL_OF[p.kind], gltf = name && MODELS[name];
+  if (!gltf) return out;
+  const g = new THREE.Group(); g.add(gltf.scene.clone(true));
+  const res = { group: g, solids: out.solids, light: out.light };
+  if (p.kind === 'camera') {
+    const head = g.getObjectByName('head'), led = g.getObjectByName('led');
+    if (head && led) { led.material = led.material.clone(); led.material.emissive.setHex(0xff2010); res.parts = { head, led }; } else return out;
+  }
+  return res;
+}
+
 export const PROP_BUILDERS = {
   // CCTV on a bracket; head turns toward the player, red LED blinks
   camera() {
@@ -132,6 +151,13 @@ export function buildFixture(L, ceil, y) {
     glowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), glow); glowMesh.position.set(0, -0.02, 0.3); g.add(glowMesh);
     for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; g.add(box(0.008, 0.16, 0.008, m.steel, Math.cos(a) * 0.08, -0.03, 0.3 + Math.sin(a) * 0.08)); }
     lightPos.set(0, -0.05, 0.38);
+  }
+  const model = MODELS[{ cage: 'lamp_cage', tube: 'lamp_tube', red: 'lamp_red', bulb: 'lamp_bulb' }[L.kind]];
+  if (model) { // keep the cables and the light; swap the fixture body for the modelled one
+    for (const c of [...g.children]) if (c.material !== m.cable) g.remove(c);
+    const fx = model.scene.clone(true); g.add(fx);
+    const gm = fx.getObjectByName('glow');
+    if (gm) { gm.material = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: color, emissiveIntensity: L.kind === 'tube' ? 0.8 : 2.2 }); glowMesh = gm; }
   }
   light = new THREE.PointLight(color, L.intensity * 6, L.kind === 'tube' ? 18 : 13, 1.7);
   light.position.copy(lightPos); g.add(light);

@@ -185,12 +185,95 @@ function tube(rings, reg, segs, { capTop = false, capBottom = false } = {}) {
 }
 
 // ---------------------------------------------------------------- kit
+// Blender-built bodies, when loaded: { gown: gltf, coverall: gltf, hood: gltf }
+const MODELS = {};
+export function setZombieModels(map) { for (const v of ZOMBIE_VARIANTS) if (map['zombie_' + v]) MODELS[v] = map['zombie_' + v]; }
+
 export function createZombieKit() {
   const atlasCache = new Map();
   const proxyMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   const fleshMat = new THREE.MeshStandardMaterial({ color: 0x5a1410, roughness: 0.5 });
 
+
+  // proxies for wounds, severing, and the userData contract the game relies on (shared by both body sources)
+  function finishBody({ root, bones, skeleton, parts, P, k, s, mat, legLen, meta }) {
+    // hit proxies on the bones (invisible), sized to the body so wounds sit on the surface
+    const zones = [], joints = Object.fromEntries(BONES.map(n => [n, bones[B[n]]]));
+    const proxy = (bone, zone, w, h, d, oy, oz = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), proxyMat); m.position.set(0, oy, oz); m.userData.zone = zone; joints[bone].add(m); zones.push(m); };
+    proxy('hips', 'torso', 0.3 * s * k, 0.16 * k, 0.21 * k, 0.04 * k); proxy('spine', 'torso', 0.27 * s * k, 0.2 * k, 0.2 * k, 0.1 * k); proxy('chest', 'torso', 0.36 * s * k, 0.24 * k, 0.23 * k, 0.12 * k, 0.01);
+    proxy('head', 'head', 0.17 * k, 0.24 * k, 0.2 * k, 0.12 * k, 0.01); proxy('neck', 'head', 0.1 * k, 0.1 * k, 0.1 * k, 0.04 * k);
+    for (const S of ['L', 'R']) { proxy('shoulder' + S, 'arm', 0.1 * k, 0.3 * k, 0.1 * k, -0.15 * k); proxy('elbow' + S, 'arm', 0.08 * k, 0.28 * k, 0.08 * k, -0.14 * k); proxy('wrist' + S, 'arm', 0.05 * k, 0.18 * k, 0.08 * k, -0.09 * k);
+      proxy('thigh' + S, 'leg', 0.16 * k, 0.44 * k, 0.17 * k, -0.22 * k); proxy('knee' + S, 'leg', 0.11 * k, 0.43 * k, 0.12 * k, -0.21 * k); }
+
+    // severing: hide the segments below the joint and hand back a baked copy of them, posed as they were
+    const FING = S => [0, 1, 2, 3, 4].map(f => 'finger' + S + f);
+    const BELOW = { head: ['head', 'rope'], elbowL: ['farmL', ...FING('L')], elbowR: ['farmR', ...FING('R')], kneeL: ['shinL'], kneeR: ['shinR'], shoulderL: ['uarmL', 'farmL', ...FING('L')], shoulderR: ['uarmR', 'farmR', ...FING('R')], thighL: ['thighL', 'shinL'], thighR: ['thighR', 'shinR'] };
+    const _v = new THREE.Vector3();
+    function severPart(jointName) {
+      const names = BELOW[jointName]; if (!names) return null;
+      const segs = names.map(n => parts[n]).filter(m => m && m.visible); if (!segs.length) return null;
+      root.updateMatrixWorld(true);
+      const jw = new THREE.Vector3(); joints[jointName].getWorldPosition(jw);
+      const gib = new THREE.Group(); gib.position.copy(jw);
+      for (const m of segs) {
+        const src = m.geometry, pa = src.attributes.position, out = new Float32Array(pa.count * 3);
+        for (let i = 0; i < pa.count; i++) { m.getVertexPosition(i, _v); _v.applyMatrix4(m.matrixWorld).sub(jw); out[i * 3] = _v.x; out[i * 3 + 1] = _v.y; out[i * 3 + 2] = _v.z; }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(out, 3)); g.setAttribute('uv', src.attributes.uv); g.setIndex(src.index); g.computeVertexNormals();
+        const gm = new THREE.Mesh(g, mat); gm.castShadow = true; gib.add(gm); m.visible = false;
+      }
+      // a raw end on the gib where it came off
+      const end = new THREE.Mesh(new THREE.SphereGeometry(0.035 * k, 6, 4), fleshMat); gib.add(end);
+      return gib;
+    }
+    // arms modelled in an A-pose hang outward at rest; poses bring them back alongside the body
+    const armOut = Math.atan2(Math.abs(P.wristL[0] - P.shoulderL[0]), P.shoulderL[1] - P.wristL[1]);
+    root.userData.rig = { joints, bones, skeleton, P, k, legLen, armOut: armOut > 0.12 ? armOut * 0.85 : 0 };
+    root.userData.zones = zones; root.userData.parts = parts; root.userData.severPart = severPart; root.userData.zombie = meta;
+    return root;
+  }
+
+  // ---- Blender-built bodies (assets/models/zombie_<variant>.glb). The skin weights come from Blender; the bones are
+  // rebuilt here with identity rest rotations at the same joint positions, so every pose in this file applies unchanged.
+  // The mesh is split by dominant bone into the same named segments the procedural body has, for severing.
+  const SEG_OF = { head: 'head', elbowL: 'farmL', wristL: 'farmL', elbowR: 'farmR', wristR: 'farmR', shoulderL: 'uarmL', shoulderR: 'uarmR', thighL: 'thighL', thighR: 'thighR', kneeL: 'shinL', ankleL: 'shinL', kneeR: 'shinR', ankleR: 'shinR' };
+  function buildFromModel(gltf, variant, seed, height) {
+    const src = gltf.scene; src.updateMatrixWorld(true);
+    let sm = null; src.traverse(o => { if (o.isSkinnedMesh && !sm) sm = o; });
+    if (!sm) return null;
+    const k = height / 1.8;
+    // joint rest positions (world, metres) from the exported armature
+    const P = {}; for (const b of sm.skeleton.bones) { const v = new THREE.Vector3(); b.getWorldPosition(v); P[b.name] = [v.x * k, v.y * k, v.z * k]; }
+    if (!P.root) P.root = [0, 0, 0];
+    for (const n of BONES) if (!P[n]) return null;
+    const bones = BONES.map(n => { const b = new THREE.Bone(); b.name = n; if (n.startsWith('shoulder')) b.rotation.order = 'YXZ'; return b; });
+    for (const n of BONES) { const b = bones[B[n]], p = P[n], par = PARENT[n]; if (par) { const q = P[par]; b.position.set(p[0] - q[0], p[1] - q[1], p[2] - q[2]); bones[B[par]].add(b); } else b.position.set(...p); }
+    const root = new THREE.Group(); root.add(bones[0]); root.updateMatrixWorld(true);
+    // the skeleton keeps the exported joint order so the skinIndex attribute still points at the right bones
+    const order = sm.skeleton.bones.map(b => bones[B[b.name]] || bones[0]);
+    const skeleton = new THREE.Skeleton(order);
+    const geo = sm.geometry.clone(); geo.applyMatrix4(new THREE.Matrix4().makeScale(k, k, k).multiply(sm.matrixWorld));
+    const mat = sm.material;
+    // split triangles by the bone with the most weight on their vertices
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, idx = geo.index ? geo.index.array : [...Array(geo.attributes.position.count).keys()];
+    const domName = new Array(si.count);
+    for (let v = 0; v < si.count; v++) { let best = 0, bw = -1; for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > bw) { bw = w; best = si.getComponent(v, c); } } domName[v] = sm.skeleton.bones[best]?.name || 'hips'; }
+    const groups = {};
+    for (let t = 0; t < idx.length; t += 3) {
+      const votes = {}; for (let c = 0; c < 3; c++) { const seg = SEG_OF[domName[idx[t + c]]] || 'torso'; votes[seg] = (votes[seg] || 0) + 1; }
+      const seg = Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0];
+      (groups[seg] || (groups[seg] = [])).push(idx[t], idx[t + 1], idx[t + 2]);
+    }
+    const parts = {};
+    for (const [seg, list] of Object.entries(groups)) {
+      const g = new THREE.BufferGeometry(); for (const [n, a] of Object.entries(geo.attributes)) g.setAttribute(n, a);
+      g.setIndex(list); g.computeBoundingSphere();
+      const m = new THREE.SkinnedMesh(g, mat); m.name = seg; m.castShadow = m.receiveShadow = true; m.frustumCulled = false; root.add(m); m.bind(skeleton); parts[seg] = m;
+    }
+    return finishBody({ root, bones, skeleton, parts, P, k, s: 1, mat, legLen: P.hips[1], meta: { variant, seed, gaunt: variant !== 'coverall', model: true } });
+  }
+
   function build(variant = 'gown', seed = 1, height = 1.8) {
+    if (MODELS[variant]) { const r = buildFromModel(MODELS[variant], variant, seed, height); if (r) return r; }
     const rnd = mulberry32(seed * 31 + 7);
     const gaunt = variant === 'hood' || rnd() < 0.4, k = height / 1.8, wide = (gaunt ? 0.86 : 1.06) * (0.95 + rnd() * 0.1);
     const P = bindLayout(k, gaunt);
@@ -299,37 +382,7 @@ export function createZombieKit() {
       { y: y('hips') - 0.3 * k, x: 0, z: 0.02, rx: 0.22 * s * k, rz: 0.16 * k, w: W(['hips', 0.3], ['thighL', 0.35], ['thighR', 0.35]), dy: a => -0.05 * k * Math.abs(Math.sin(a * 3.7 + seed)) - (Math.sin(a * 9 + seed * 2) > 0.6 ? 0.06 * k : 0) },
     ], 'skirt', 16);
 
-    // hit proxies on the bones (invisible), sized to the body so wounds sit on the surface
-    const zones = [], joints = Object.fromEntries(BONES.map(n => [n, bones[B[n]]]));
-    const proxy = (bone, zone, w, h, d, oy, oz = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), proxyMat); m.position.set(0, oy, oz); m.userData.zone = zone; joints[bone].add(m); zones.push(m); };
-    proxy('hips', 'torso', 0.3 * s * k, 0.16 * k, 0.21 * k, 0.04 * k); proxy('spine', 'torso', 0.27 * s * k, 0.2 * k, 0.2 * k, 0.1 * k); proxy('chest', 'torso', 0.36 * s * k, 0.24 * k, 0.23 * k, 0.12 * k, 0.01);
-    proxy('head', 'head', 0.17 * k, 0.24 * k, 0.2 * k, 0.12 * k, 0.01); proxy('neck', 'head', 0.1 * k, 0.1 * k, 0.1 * k, 0.04 * k);
-    for (const S of ['L', 'R']) { proxy('shoulder' + S, 'arm', 0.1 * k, 0.3 * k, 0.1 * k, -0.15 * k); proxy('elbow' + S, 'arm', 0.08 * k, 0.28 * k, 0.08 * k, -0.14 * k); proxy('wrist' + S, 'arm', 0.05 * k, 0.18 * k, 0.08 * k, -0.09 * k);
-      proxy('thigh' + S, 'leg', 0.16 * k, 0.44 * k, 0.17 * k, -0.22 * k); proxy('knee' + S, 'leg', 0.11 * k, 0.43 * k, 0.12 * k, -0.21 * k); }
-
-    // severing: hide the segments below the joint and hand back a baked copy of them, posed as they were
-    const FING = S => [0, 1, 2, 3, 4].map(f => 'finger' + S + f);
-    const BELOW = { head: ['head', 'rope'], elbowL: ['farmL', ...FING('L')], elbowR: ['farmR', ...FING('R')], kneeL: ['shinL'], kneeR: ['shinR'], shoulderL: ['uarmL', 'farmL', ...FING('L')], shoulderR: ['uarmR', 'farmR', ...FING('R')], thighL: ['thighL', 'shinL'], thighR: ['thighR', 'shinR'] };
-    const _v = new THREE.Vector3();
-    function severPart(jointName) {
-      const names = BELOW[jointName]; if (!names) return null;
-      const segs = names.map(n => parts[n]).filter(m => m && m.visible); if (!segs.length) return null;
-      root.updateMatrixWorld(true);
-      const jw = new THREE.Vector3(); joints[jointName].getWorldPosition(jw);
-      const gib = new THREE.Group(); gib.position.copy(jw);
-      for (const m of segs) {
-        const src = m.geometry, pa = src.attributes.position, out = new Float32Array(pa.count * 3);
-        for (let i = 0; i < pa.count; i++) { m.getVertexPosition(i, _v); _v.applyMatrix4(m.matrixWorld).sub(jw); out[i * 3] = _v.x; out[i * 3 + 1] = _v.y; out[i * 3 + 2] = _v.z; }
-        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(out, 3)); g.setAttribute('uv', src.attributes.uv); g.setIndex(src.index); g.computeVertexNormals();
-        const gm = new THREE.Mesh(g, mat); gm.castShadow = true; gib.add(gm); m.visible = false;
-      }
-      // a raw end on the gib where it came off
-      const end = new THREE.Mesh(new THREE.SphereGeometry(0.035 * k, 6, 4), fleshMat); gib.add(end);
-      return gib;
-    }
-    root.userData.rig = { joints, bones, skeleton, P, k, legLen: y('hips') };
-    root.userData.zones = zones; root.userData.parts = parts; root.userData.severPart = severPart; root.userData.zombie = { variant, seed, gaunt };
-    return root;
+    return finishBody({ root, bones, skeleton, parts, P, k, s, mat, legLen: y('hips'), meta: { variant, seed, gaunt } });
   }
 
   // ---------------------------------------------------------------- animation
@@ -340,6 +393,7 @@ export function createZombieKit() {
     const t = st.t, L = st.limp ?? 0.5, sd = st.side ?? 1; // which leg drags
     let hipsY = 0, rootRot = [0, 0, 0], rootOff = [0, 0, 0];
     // base hunch: head pushed forward, shoulders slumped
+    if (rig.armOut) { add('shoulderL', 0, 0, -rig.armOut); add('shoulderR', 0, 0, rig.armOut); }
     add('spine', 0.22); add('chest', 0.12); add('neck', -0.15); add('head', -0.05, 0, 0.12 * sd);
     add('shoulderL', 0.05, 0, 0.1); add('shoulderR', 0.05, 0, -0.1); add('elbowL', -0.25); add('elbowR', -0.25);
     if (st.crawl) {
