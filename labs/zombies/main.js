@@ -1,7 +1,8 @@
 // Zombie Lab: the skinned experiment subjects, their painted atlases and every animation, on a lit turntable.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createZombieKit, ZOMBIE_VARIANTS } from '../../src/assets/zombie.js';
+import { createZombieKit, ZOMBIE_VARIANTS, setZombieModels } from '../../src/assets/zombie.js';
+import { loadGalleryModels } from '../../src/assets/gallery-models.js';
 import { PIXEL_TEXTURES } from '../../src/world/pixeltex.js';
 import { createGore } from '../../src/fx/gore.js';
 
@@ -21,6 +22,8 @@ const fl = PIXEL_TEXTURES.floor(); fl.map.repeat.set(5, 5); fl.normalMap.repeat.
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial({ map: fl.map, normalMap: fl.normalMap, roughness: 0.5 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 const gore = createGore(scene, { floorAt: () => 0 });
 
+const USE_MODELS = !location.search.includes('procedural');
+if (USE_MODELS) setZombieModels(await loadGalleryModels({ only: ZOMBIE_VARIANTS.map(v => 'zombie_' + v) }));
 const ZK = createZombieKit();
 let bodies = [], variant = 'gown', seed = 1, lineup = false, move = 'idle', upper = 'free', crawl = false;
 function spawn() {

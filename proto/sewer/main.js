@@ -5,7 +5,9 @@ import def from '../../data/sewer/gallery-1.json';
 import movementData from '../../data/movement/standard.json';
 import pistolData from '../../data/weapons/pistol.json';
 import { createWeaponLibrary } from '../../src/assets/weapons.js';
-import { createZombieKit, ZOMBIE_VARIANTS } from '../../src/assets/zombie.js';
+import { createZombieKit, ZOMBIE_VARIANTS, setZombieModels } from '../../src/assets/zombie.js';
+import { loadGalleryModels } from '../../src/assets/gallery-models.js';
+import { setPropModels } from '../../src/world/sewer-props.js';
 import { buildSewer } from '../../src/world/sewer.js';
 import { SURFACES } from '../../src/world/level.js';
 import { createLook } from '../../src/render/look.js';
@@ -43,6 +45,9 @@ const camera = new THREE.PerspectiveCamera(V.fov, 1, 0.03, 200);
 scene.add(camera);
 const look = createLook(renderer, scene, camera, { shadowExtent: 10, overlayParent: root });
 look.sun.castShadow = false;
+// Blender-built models first (props, fixtures, pickups, zombies); every one has a procedural fallback
+const MODELS = await loadGalleryModels({ onProgress: f => { const el = document.getElementById('loading'); if (el) el.textContent = `loading ${Math.round(f * 100)}%`; } });
+setPropModels(MODELS); setZombieModels(MODELS);
 const level = buildSewer(def);
 scene.add(level.root);
 let lookKey = readLS('sewer.look') || 'sewer'; if (!LOOKS[lookKey]) lookKey = 'sewer';
@@ -165,7 +170,9 @@ const glintMat = new THREE.SpriteMaterial({ map: glintTex, color: 0xffe8c0, tran
 function pickupMesh(kind) {
   let m;
   const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: o.r ?? 0.6, metalness: o.m ?? 0, emissive: o.e ?? color, emissiveIntensity: o.ei ?? 0.2, transparent: !!o.t, opacity: o.t ?? 1 });
-  if (kind === 'pipe' || kind === 'pistol') { m = WLIB.build({ prop: kind }); m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.multiplyScalar(2.2); o.material.metalness = Math.min(o.material.metalness, 0.35); o.material.roughness = Math.min(o.material.roughness, 0.45); o.material.emissive = o.material.color.clone(); o.material.emissiveIntensity = 0.25; } }); } // oiled, clean metal against the grime
+  const model = MODELS['pick_' + kind];
+  if (model) { m = model.scene.clone(true); m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0xffffff); o.material.emissiveMap = o.material.map; o.material.emissiveIntensity = 0.22; } }); } // the painted model, faintly self-lit
+  else if (kind === 'pipe' || kind === 'pistol') { m = WLIB.build({ prop: kind }); m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.multiplyScalar(2.2); o.material.metalness = Math.min(o.material.metalness, 0.35); o.material.roughness = Math.min(o.material.roughness, 0.45); o.material.emissive = o.material.color.clone(); o.material.emissiveIntensity = 0.25; } }); } // oiled, clean metal against the grime
   else if (kind === 'brick') m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.065, 0.1), M(0x9a4a32, { r: 0.85 }));
   else if (kind === 'bottle') { m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.17, 10), M(0x3a8a3a, { r: 0.08, m: 0.1, t: 0.85, ei: 0.2 })), new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.03, 0.07, 8).translate(0, 0.12, 0), M(0x3a8a3a, { r: 0.08, t: 0.85, ei: 0.2 }))); m.children[0].position.y = -0.0; m.position.y = -0.03; }
   else if (kind === 'ammo') { m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.08), M(0x6a6038)), new THREE.Mesh(new THREE.BoxGeometry(0.122, 0.025, 0.082), M(0xc8a030, { ei: 0.25 }))); }
