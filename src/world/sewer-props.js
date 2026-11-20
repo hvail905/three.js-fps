@@ -156,7 +156,7 @@ export function buildFixture(L, ceil, y) {
   if (model) { // keep the cables and the light; swap the fixture body for the modelled one
     for (const c of [...g.children]) if (c.material !== m.cable) g.remove(c);
     const fx = model.scene.clone(true); g.add(fx);
-    const gm = fx.getObjectByName('glow');
+    let gm = null; fx.traverse(o => { if (!gm && o.isMesh && o.name.startsWith('glow')) gm = o; }); // Blender suffixes repeats: glow.001
     if (gm) { gm.material = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: color, emissiveIntensity: L.kind === 'tube' ? 0.8 : 2.2 }); glowMesh = gm; }
   }
   light = new THREE.PointLight(color, L.intensity * 6, L.kind === 'tube' ? 18 : 13, 1.7);
